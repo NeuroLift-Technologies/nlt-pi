@@ -16,14 +16,16 @@
       "Rewrote docs/active-threads.md into the ORG-DEV-OTOI-1.0.4 section 6 block format with ISO 8601 timestamps",
       "Updated templates (commit-message.md, agent-registration.json, handoff-record.json, intent-log.md) to the canonical identifiers",
       "Created docs/agent-log/intent/ with a README and added it to the nltotoi.json required_files inventory",
-      "Updated the validator, .nltotoi index and README, .claude settings and hook, and SOPs to the new identifiers"
+      "Updated the validator, .nltotoi index and README, .claude settings and hook, and SOPs to the new identifiers",
+      "Merged origin/main (PR #4, 034f01e02) into the branch and resolved the docs/active-threads.md conflict in favour of the section 6 conformant version, recording NLTPI-CONTRIB-001 as resolved",
+      "Removed the four surviving statements that told contributors their issues and PRs would be auto-closed after PR #4 deleted that automation, and repointed their contribution-guide links from the upstream vendor to the NeuroLift org default"
     ],
     "work_in_progress": [],
     "blockers": [
       "SECURITY.md still routes vulnerability reports to security@earendil.com; repointing is a security-boundary change requiring owner approval",
-      "CONTRIBUTING.md remains a local override of the org default (upstream Pi text plus an auto-close contribution gate)",
       "No usable escalation channel: nlt-pi issues are disabled, and .github lacks the escalation and agent labels",
-      "No contents:write on NeuroLift-Technologies/.github, so upstream SOP and CLAUDE.md fixes cannot be delivered as PRs"
+      "No contents:write on NeuroLift-Technologies/.github, so upstream SOP and CLAUDE.md fixes cannot be delivered as PRs",
+      "CI cannot verify any pull request in this repository: workflow runs fail at startup (startup_failure) across multiple workflows on main as well as pull requests"
     ],
     "decisions_made": [
       "Kept NLT-DEV-OTOI.md as an aligned local supplement rather than deleting it, because the canonical artifacts contain no ASFDK content while this contract carries the three-layer model",
@@ -41,7 +43,7 @@
       "https://github.com/NeuroLift-Technologies/.github/issues/11",
       "https://github.com/NeuroLift-Technologies/.github/issues/13"
     ],
-    "next_agent_notes": "The repository now tracks ORG-DEV-OTOI-1.0.4. Do not re-introduce a .github-private citation for this repository: .github is canonical for public scope. Two items were deliberately left undone because they change a security boundary rather than a document: SECURITY.md still points at security@earendil.com, and CONTRIBUTING.md still overrides the org default with upstream Pi text including an auto-close contribution gate. Both need explicit owner approval. The governance validator was run and passes 36/36; npm build, check, and test were NOT run because node_modules is absent in this checkout.",
+    "next_agent_notes": "PR #4 is merged (034f01e02): pr-gate, issue-gate, approve-contributor, .github/APPROVED_CONTRIBUTORS and the local CONTRIBUTING.md are gone, so the organization default contribution guide applies. This branch is merged up to date with main. Remaining owner decisions: SECURITY.md still routes vulnerability reports to security@earendil.com (security-boundary change), the repository escalation channel is still unusable (nlt-pi issues disabled, .github lacks the escalation and agent labels), and main is reported unprotected. CI cannot verify anything because workflow runs fail at startup.",
     "files_modified": [
       "NLT-DEV-OTOI.md",
       "AGENTS.md",
@@ -62,12 +64,17 @@
       ".claude/settings.json",
       ".claude/README.md",
       ".claude/hooks/session-start.sh",
-      "SOPs/repo-governance-setup.md"
+      "SOPs/repo-governance-setup.md",
+      ".github/ISSUE_TEMPLATE/bug.yml",
+      ".github/ISSUE_TEMPLATE/contribution.yml",
+      ".github/ISSUE_TEMPLATE/package-report.yml",
+      "packages/coding-agent/README.md"
     ],
     "tests_run": [
-      "bash .nltotoi/scripts/validate-governance.sh - 36 passed, 0 failed, exit 0",
+      "bash .nltotoi/scripts/validate-governance.sh - 36 passed, 0 failed, exit 0 (after merge and after the doc fix)",
       "JSON.parse validation of nltotoi.json, .claude/settings.json, templates/agent-registration.json, templates/handoff-record.json - all valid",
-      "NOT RUN: npm run build, npm run check, ./test.sh - node_modules absent in this checkout"
+      "grep sweep confirming zero residual auto-close claims and zero upstream CONTRIBUTING links in the four touched files",
+      "NOT RUN: npm run build, npm run check, ./test.sh - node_modules absent; NOT RUN: YAML parse of the issue templates - no parser available in this environment"
     ],
     "tests_passing": true,
     "pr_url": ""

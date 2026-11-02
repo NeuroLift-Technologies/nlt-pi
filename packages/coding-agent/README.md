@@ -8,7 +8,7 @@
   <a href="https://www.npmjs.com/package/@earendil-works/pi-coding-agent"><img alt="npm" src="https://img.shields.io/npm/v/@earendil-works/pi-coding-agent?style=flat-square&logo=npm&logoColor=white" /></a>
 </p>
 
-> New issues and PRs from new contributors are closed automatically. Maintainers review closed submissions daily. See [CONTRIBUTING.md](https://github.com/earendil-works/pi/blob/main/CONTRIBUTING.md).
+> This package is part of NLT-Pi. See the [NeuroLift Technologies contribution guide](https://github.com/NeuroLift-Technologies/.github/blob/main/CONTRIBUTING.md) before opening an issue or pull request.
 
 # Pi
 
@@ -88,7 +88,7 @@ npm run check
 ./test.sh
 ```
 
-Read [CONTRIBUTING.md](https://github.com/earendil-works/pi/blob/main/CONTRIBUTING.md) before opening an issue or pull request. It defines the contribution gate, issue quality bar, and required checks. Read [AGENTS.md](https://github.com/earendil-works/pi/blob/main/AGENTS.md) for repository-specific implementation, testing, dependency, and release rules.
+Read the [NeuroLift Technologies contribution guide](https://github.com/NeuroLift-Technologies/.github/blob/main/CONTRIBUTING.md) before opening an issue or pull request. It defines the issue quality bar and required checks. Read [AGENTS.md](https://github.com/NeuroLift-Technologies/nlt-pi/blob/main/AGENTS.md) for this repository's implementation, testing, dependency, and release rules.
 
 ## License
 
