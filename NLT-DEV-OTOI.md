@@ -1,9 +1,10 @@
 # NLT-Pi Developer Orchestrated Terms of Interaction
 
-**Document ID:** NLT-PI-DEV-OTOI-1.0.0  
+**Document ID:** NLT-PI-DEV-OTOI-1.0.4  
 **Scope:** NeuroLift Technologies / nlt-pi repository and NLT Coding Agent runtime foundation  
 **Authority:** Joshua W. Dorsey, Sr.  
-**Governance source:** NeuroLift-Technologies/.github-private — templates adapted for this repository  
+**Canonical contract:** ORG-DEV-OTOI-1.0.4 — `NeuroLift-Technologies/.github` (`governance.yaml`, `governance.json`)  
+**Canonical scope:** `NeuroLift-Technologies/.github` is canonical for **public** repositories. `NeuroLift-Technologies/.github-private` governs internal and private repositories. This repository is public.  
 **Principles:** Human sovereignty; Capability does not equal authority; Escalate, do not guess.
 
 > Capability does not equal authority. A model or agent may possess a capability without having permission to exercise it.
@@ -78,6 +79,7 @@ All agent-authored changes must be delivered through a pull request. Do not comm
 - No silent changes to governance policy or authority boundaries.
 - No direct writes to protected branches.
 - No claiming a control is enforced unless its executable implementation and tests demonstrate enforcement.
+- No changes to this document or the canonical contract outside the formal amendment process. **Agents may not self-amend.**
 
 ## 7. Intent logging
 
@@ -102,14 +104,26 @@ Escalation target: Joshua W. Dorsey, Sr. Use `templates/escalation.md` and, wher
 
 Reviews follow `REVIEW.md`. Significant sessions end with a handoff under `docs/agent-log/handoffs/`, and `docs/active-threads.md` must reflect the actual state. A handoff must distinguish work completed from work merely proposed and must list tests actually run.
 
+Every repository maintains `docs/active-threads.md`. Each entry is a `### Thread: [Thread ID]` block carrying `Status` (`open | blocked | resolved`), `Owner`, `Started`, `Last updated`, `Summary`, `Blockers`, and `Next action`. `Started` and `Last updated` are ISO 8601 timestamps with a UTC offset; date-only values are nonconformant. This is the canonical format defined by ORG-DEV-OTOI-1.0.4 section 6.
+
 ## 10. Amendment
 
-Repository governance adaptations may be changed by the repository owner through explicit review. Changes that alter organization-wide policy should be proposed to the canonical governance source. A downstream repository is not required to propagate local implementation changes upstream.
+This document and the canonical contract change only through the formal amendment process defined by `ORG-DEV-OTOI-1.0.4`:
+
+1. **Propose** — file a `governance-proposal` issue.
+2. **Review** — Joshua W. Dorsey, Sr. reviews it.
+3. **Approve** — explicit written approval is required.
+4. **Bump** — the document version increments.
+5. **Commit** — authored as `[HUMAN] docs(governance): …`.
+
+**Agents may not self-amend.** The contract is the one artifact in the repository that no agent rewrites on its own. Changes that alter organization-wide policy are proposed to the canonical governance source; a downstream repository is not required to propagate local implementation changes upstream.
 
 ## 11. Ethical and operational commitments
 
 Humanity is the orchestrator. AI systems augment human capability without displacing human judgment. Preserve meaningful human authority, transparency, provenance, accountability, and the right to stop or escalate.
 
+**Attribution.** Do not misrepresent authorship, capability, or process. Work produced under this contract is attributed accurately — including which agent produced it, what it actually verified, and what it did not verify.
+
 ---
 
-*NLT-PI-DEV-OTOI-1.0.0 | NeuroLift Technologies | Adapted from SOP-NLT-002 governance templates*
+*NLT-PI-DEV-OTOI-1.0.4 | NeuroLift Technologies | Aligned to ORG-DEV-OTOI-1.0.4 (NeuroLift-Technologies/.github)*

@@ -54,6 +54,16 @@ There are **no time restraints** for any agent working in this repository.
 - Never push directly to `main`; use feature branches and PRs.
 - Do not force-push or rewrite shared history.
 
+## Commit format
+
+All agent-authored commits use `[AGENT_NAME] type(scope): imperative description`.
+
+Allowed types: `feat`, `fix`, `docs`, `refactor`, `chore`, `test`, `ci`.
+
+Governance amendments are the exception: they are committed as `[HUMAN] docs(governance): …` and require explicit written approval (see `NLT-DEV-OTOI.md` §10).
+
+Every change is delivered through a pull request from a feature branch. Never push directly to `main` or any protected branch. See `templates/commit-message.md`.
+
 ## Governance records
 
 - Register substantive agent sessions under `docs/agent-log/registrations/`.

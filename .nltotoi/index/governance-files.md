@@ -1,8 +1,8 @@
 # NLT-Pi Governance File Index
 
 **Repository:** NeuroLift-Technologies/nlt-pi  
-**Contract:** NLT-PI-DEV-OTOI-1.0.0  
-**Template source:** NeuroLift-Technologies/.github-private (adapted locally)
+**Contract:** NLT-PI-DEV-OTOI-1.0.4  
+**Template source:** NeuroLift-Technologies/.github — canonical for public repositories (adapted locally)
 
 ## Core
 | Path | Purpose |

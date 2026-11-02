@@ -9,6 +9,18 @@ This repository is the NLT-owned runtime and SDK foundation for the NeuroLift Te
 4. `docs/active-threads.md` — current work and blockers.
 5. `nltotoi.json` — machine-readable governance manifest.
 
+## Canonical governance
+
+This repository is **public**. Its canonical governance contract is `ORG-DEV-OTOI-1.0.4` in [`NeuroLift-Technologies/.github`](https://github.com/NeuroLift-Technologies/.github):
+
+- Contract (machine-readable): https://github.com/NeuroLift-Technologies/.github/blob/main/governance.yaml
+- Agent guide: https://github.com/NeuroLift-Technologies/.github/blob/main/AGENTS.md
+- Review format: https://github.com/NeuroLift-Technologies/.github/blob/main/REVIEW.md
+
+`NLT-DEV-OTOI.md` in this repository (`NLT-PI-DEV-OTOI-1.0.4`) is a local supplement aligned to that contract. Where the two differ, the canonical contract governs. `NeuroLift-Technologies/.github-private` governs internal and private repositories and does not govern this one.
+
+**Governed by:** ORG-DEV-OTOI-1.0.4
+
 ## Project identity and boundaries
 - NLT-Pi provides the TypeScript agent runtime / SDK foundation used by NLT Coding Agent.
 - AgentOS is the NCA execution environment ("computer"); it is not the semantic governance authority.

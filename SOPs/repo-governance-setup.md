@@ -2,7 +2,7 @@
 
 **Version:** 1.0.0  
 **Scope:** Governance scaffolding and validation for this repository  
-**Template source:** NeuroLift-Technologies/.github-private
+**Template source:** NeuroLift-Technologies/.github (canonical for public repositories)
 
 ## Purpose
 Define the repository-specific governance baseline. Organization templates are adapted locally; no downstream sync or automatic upstream propagation is configured.
@@ -16,7 +16,7 @@ Define the repository-specific governance baseline. Organization templates are a
 - Validation: `.nltotoi/scripts/validate-governance.sh` and `.github/workflows/validate-nlt-governance.yml`.
 
 ## Procedure
-1. Review the canonical organization templates in `.github-private`.
+1. Review the canonical organization templates in `.github` (canonical for public repositories).
 2. Adapt language, paths, version identifiers, roles, and enforcement claims to NLT-Pi.
 3. Preserve distinct ASFDK development, foundation, harness, and MCP responsibilities.
 4. Validate manifest paths and required artifacts.

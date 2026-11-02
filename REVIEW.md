@@ -1,6 +1,6 @@
 # NLT-Pi Review Standard
 
-**Governed by:** NLT-PI-DEV-OTOI-1.0.0  
+**Governed by:** NLT-PI-DEV-OTOI-1.0.4  
 **Applies to:** Code, architecture, security, governance, documentation, and agent behavior reviews.
 
 ## Review metadata
@@ -42,6 +42,13 @@
 - **Required remediation:** [concrete corrective action]
 
 Every finding must identify the concrete trigger, precondition, or state that produces the stated impact. Do not use a speculative impact without labeling it as a hypothesis and stating what evidence is missing. Preserve exact locations and actionable remediation.
+
+## Factual accuracy
+
+- [ ] Every factual claim is traceable to a file, line, command, or captured output.
+- [ ] Anything not verified is labeled unverified, with the missing evidence named.
+- [ ] No fabricated test results, tool outputs, citations, or implementation status.
+- [ ] Claims that a control is enforced are backed by code paths and tests, not by documentation.
 
 ## Architecture and governance
 - [ ] Development, harness, and MCP governance boundaries remain distinct.

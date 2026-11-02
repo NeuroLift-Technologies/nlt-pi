@@ -1,6 +1,6 @@
 {
   "manifest_version": "1.0.0",
-  "governance_contract": "NLT-PI-DEV-OTOI-1.0.0",
+  "governance_contract": "NLT-PI-DEV-OTOI-1.0.4",
   "repository": {
     "name": "NeuroLift-Technologies/nlt-pi",
     "purpose": "NLT-owned TypeScript agent runtime and SDK foundation for NLT Coding Agent",
@@ -43,6 +43,7 @@
     "REVIEW.md",
     "docs/active-threads.md",
     "docs/agent-log/README.md",
+    "docs/agent-log/intent/README.md",
     "docs/escalations/README.md",
     "templates/agent-registration.json",
     "templates/handoff-record.json",
@@ -67,7 +68,7 @@
     ".github/workflows/validate-nlt-governance.yml"
   ],
   "metadata": {
-    "source_templates": "NeuroLift-Technologies/.github-private",
+    "source_templates": "NeuroLift-Technologies/.github (canonical for public repositories)",
     "adaptation": "Repository-specific; local changes do not auto-propagate upstream"
   }
 }

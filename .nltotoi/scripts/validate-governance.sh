@@ -51,7 +51,7 @@ else
   done <<< "$required_json"
 fi
 
-check_contains NLT-DEV-OTOI.md NLT-PI-DEV-OTOI-1.0.0
+check_contains NLT-DEV-OTOI.md NLT-PI-DEV-OTOI-1.0.4
 check_contains NLT-DEV-OTOI.md 'Capability does not equal authority'
 check_contains AGENTS.md 'ASFDK harness'
 check_contains AGENTS.md 'ASFDK MCP'

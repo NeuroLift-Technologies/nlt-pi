@@ -1,6 +1,6 @@
 # NLT-Pi Claude Code Governance
 
-Repository-adapted Claude Code configuration. Templates originate in `.github-private`, but this copy is owned by NLT-Pi and may be modified locally. No automatic propagation is configured.
+Repository-adapted Claude Code configuration. Templates originate in `.github` (canonical for public repositories), but this copy is owned by NLT-Pi and may be modified locally. No automatic propagation is configured.
 
 ## Contents
 - `settings.json`: SessionStart hook and conservative permissions.
