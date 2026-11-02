@@ -7,11 +7,11 @@
 ### NLTPI-CONTRIB-001 — Remove repository-local contributor gate
 **Status:** in_review  
 **Owner:** Joshua W. Dorsey, Sr. / delegated coding agents  
-**Summary:** Remove the fork-inherited contributor auto-close/approval mechanism from NLT-Pi so normal GitHub contribution behavior applies. Deleted the PR Gate, Issue Gate, and Approve Contributor workflows first, then their `.github/APPROVED_CONTRIBUTORS` data file, then the local `CONTRIBUTING.md` so GitHub can surface the organization-level default guide from `NeuroLift-Technologies/.github`.  
+**Summary:** Remove the fork-inherited contributor auto-close/approval mechanism from NLT-Pi so normal GitHub contribution behavior applies. Deleted the PR Gate, Issue Gate, and Approve Contributor workflows first, then their `.github/APPROVED_CONTRIBUTORS` data file, then the local `CONTRIBUTING.md` so GitHub can surface the organization-level default guide from `NeuroLift-Technologies/.github`. Updated `SECURITY.md` to replace upstream Earendil-specific reporting details with the NLT-Pi security model, private disclosure route, explicit governance trust boundaries, enforcement requirements, and scoped vulnerability criteria.  
 **PR:** https://github.com/NeuroLift-Technologies/nlt-pi/pull/4  
 **Branch:** `governance/remove-contributor-gates`  
-**Verification:** PR #4 is open. Both CI and governance workflow runs ended in `startup_failure` with zero jobs created; this is an Actions startup/infrastructure failure, not a reported test assertion failure. Main currently reports `protected: false` and no repository rulesets.  
-**Next action:** Confirm the two requested repository settings and establish branch protection requiring approving review(s) and required status checks through an authorized admin surface.
+**Verification:** PR #4 is open. Both CI and governance workflow runs previously ended in `startup_failure` with zero jobs created; this is an Actions startup/infrastructure failure, not a reported test assertion failure. Main currently reports `protected: false` and no repository rulesets. SECURITY.md is documentation-only; its requirements must not be interpreted as proof that every runtime path currently enforces them.  
+**Next action:** Confirm the two requested repository settings and establish branch protection requiring approving review(s) and required status checks through an authorized admin surface. Re-run/inspect CI against the current PR head.
 
 ### NLTPI-ARCH-001 — ASFDK three-layer governance alignment
 **Status:** active  
