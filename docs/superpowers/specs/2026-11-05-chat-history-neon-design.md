@@ -25,10 +25,14 @@ The owner added Neon (Postgres) to the Vercel project and wants chat history sav
 
 ### Out of scope
 
-- Mem0, Neon Auth, Neon realtime.
+- Mem0 (see "Planned next phase" below), Neon Auth, Neon realtime.
 - Giving the model conversation context.
 - Search, export, renaming conversations, or editing past messages.
 - Use by anyone but the owner.
+
+### Planned next phase: Mem0 as the memory layer (owner, 2026-11-05)
+
+The owner's direction is for Mem0 to be the agent's intelligent memory layer. Neon stays the exact transcript, for the owner to reopen and delete. Mem0 would hold distilled, long-lived facts and preferences that the agent recalls across conversations. That changes how the agent runs: it would no longer answer each message on its own, and conversation text would go to Mem0, a further third-party processor. So it gets its own design and spec once chat history ships. This design keeps the two apart: nothing here writes to Mem0, and nothing here depends on it.
 
 ## 2. Data model
 
