@@ -384,6 +384,31 @@ describe("runAgentTurn", () => {
     expect(client.calls).toEqual([]);
   });
 
+  it("passes the caller's requested model to the picker, and nothing when none was requested", async () => {
+    const seen: (string | undefined)[] = [];
+    const { deps, faux } = setup({
+      pickModel: async (requested?: string) => {
+        seen.push(requested);
+        return FREE;
+      },
+    });
+    faux.setResponses([fauxAssistantMessage("one"), fauxAssistantMessage("two")]);
+    await runAgentTurn(deps, { prompt: "x", model: "synthetic/free-model" });
+    await runAgentTurn(deps, { prompt: "y" });
+    expect(seen).toEqual(["synthetic/free-model", undefined]);
+  });
+
+  it("refuses without substituting when the requested model is not free right now", async () => {
+    const { client, deps } = setup({
+      pickModel: async (requested?: string) => {
+        throw new NoFreeModelError(`The requested model is not a free model right now: ${requested}`);
+      },
+    });
+    const result = await runAgentTurn(deps, { prompt: "x", model: "synthetic/priced-model" });
+    expect(result.status).toBe("no_free_model");
+    expect(client.calls).toEqual([]);
+  });
+
   it("accepts an injected free model after re-validation", async () => {
     const { deps, faux } = setup({
       pickModel: async () => FREE,
