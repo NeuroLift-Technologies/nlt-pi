@@ -20,7 +20,8 @@
       "Addressed second PR #26 review: absolute invocation deadline set at route entry and propagated to gate, model lookup, sandbox acquire, lock, policy update and turn; tests with delayed setup stages (mutation-checked).",
       "Fixed the failing Vercel preview build on 6ae8735 (root cause from the Vercel build log: model data not hydrated before build:offline); build now hydrates, builds, and asserts the Pi package entry.",
       "Owner sign-in with Vercel (OAuth + PKCE), signed session cookie, owner allow-list, 401 on /api/agent without a session, header shows sign-in state. Offline tests only.",
-      "Copy and records cleanup after #26/#27 merged: chat banner no longer says no model is connected; README notes sign-in needs HTTPS; active-threads MVP-004/005 brought up to date, including the parked client-secret question."
+      "Copy and records cleanup after #26/#27 merged: chat banner no longer says no model is connected; README notes sign-in needs HTTPS; active-threads MVP-004/005 brought up to date, including the parked client-secret question.",
+      "Data notice on the chat page and records for the free-only retention decision. Privacy-first variant kept in a local stash only."
     ],
     "work_in_progress": [],
     "blockers": [
@@ -34,7 +35,8 @@
       "Owner: the free account allows one sandbox, so the agent uses a single reused sandbox and serialises turns.",
       "Owner: egress allowed, approvals yes (no prompts inside the sandbox), Vercel login on again. Egress default is an allowlist; the owner later added \"let allow all as an option\" (explicit egressAll, nlt-pi#21). Approvals: agent turns run in the sandbox without extra prompts (owner chose this reading).",
       "Superseded: production protection was fixed by the owner (see the later entry).",
-      "Owner switched Vercel Authentication to all deployments; verified (all domains 302/401). The agent route will be gated by an owner-set per-environment flag instead of a hard production refusal."
+      "Owner switched Vercel Authentication to all deployments; verified (all domains 302/401). The agent route will be gated by an owner-set per-environment flag instead of a hard production refusal.",
+      "Owner (2026-11-05): free models only, no zero-retention/no-training requirement (no free model offers them); the chat page carries a data notice."
     ],
     "decisions_pending": [
       "Sandbox cost against the owner's plan.",
