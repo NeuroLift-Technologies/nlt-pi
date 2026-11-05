@@ -85,6 +85,13 @@ describe("handleModelsRequest", () => {
     expect(r.out.json).toEqual({ models: [{ id: "synthetic/a", name: "Model A", contextWindow: 50_000 }] });
   });
 
+  it("lists the owner's default model first", async () => {
+    const { deps } = makeDeps({ env: { NLT_AGENT_ENABLED: "1", NLT_AGENT_DEFAULT_MODEL: "synthetic/a" } });
+    const r = makeResponse();
+    await handleModelsRequest({ method: "GET" }, r.response, deps);
+    expect((r.out.json as { models: { id: string }[] }).models.map((m) => m.id)).toEqual(["synthetic/a", "synthetic/b"]);
+  });
+
   it("answers 503 with an empty list when the catalog cannot be read", async () => {
     const { deps } = makeDeps({
       fetchCatalog: async () => {

@@ -5,6 +5,7 @@ import {
   fetchGatewayCatalog,
   isFreeLanguageModel,
   parseAllowedModels,
+  parseDefaultModel,
   pickFreeModel,
   selectFreeModels,
   type GatewayCatalogModel,
@@ -118,6 +119,29 @@ describe("selectFreeModels", () => {
 
   it("returns an empty list for an empty catalog", () => {
     expect(selectFreeModels([])).toEqual([]);
+  });
+});
+
+describe("owner default model", () => {
+  const catalog = [
+    model({ id: "priced", pricing: { input: "0.000002", output: "0.000012" } }),
+    model({ id: "free-small", context_window: 8000 }),
+    model({ id: "free-big", context_window: 1_000_000 }),
+  ];
+
+  it("parses one trimmed id, and blank as no default", () => {
+    expect(parseDefaultModel("  free-small ")).toEqual(["free-small"]);
+    for (const value of [undefined, "", "   "]) expect(parseDefaultModel(value)).toEqual([]);
+  });
+
+  it("is picked when none is requested, but never makes a priced or disallowed model eligible", async () => {
+    expect((await pickFreeModel({ fetchImpl: response({ data: catalog }), preferred: ["free-small"] })).id).toBe("free-small");
+    expect((await pickFreeModel({ fetchImpl: response({ data: catalog }), preferred: ["priced"] })).id).toBe("free-big");
+    expect((await pickFreeModel({ fetchImpl: response({ data: catalog }), preferred: ["free-small"], allowed: ["free-big"] })).id).toBe("free-big");
+  });
+
+  it("does not override an explicit request", async () => {
+    expect((await pickFreeModel({ fetchImpl: response({ data: catalog }), preferred: ["free-small"], requested: "free-big" })).id).toBe("free-big");
   });
 });
 

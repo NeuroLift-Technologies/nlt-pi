@@ -6,7 +6,7 @@
  * public catalog at request time, narrowed to the owner's `NLT_AGENT_MODELS` allow-list when it is set. If the catalog cannot be read the answer is 503 with an empty list; a priced
  * model is never listed. The list is informational: `/api/agent` re-checks a chosen model inside the turn.
  */
-import { type GatewayCatalogModel, parseAllowedModels, selectFreeModels } from "../gateway/free-models.ts";
+import { type GatewayCatalogModel, parseAllowedModels, parseDefaultModel, selectFreeModels } from "../gateway/free-models.ts";
 import { type AgentRequest, type AgentResponse, agentEnabled } from "./route.ts";
 
 export interface ListedModel {
@@ -16,7 +16,7 @@ export interface ListedModel {
 }
 
 export interface ModelsRouteDeps {
-  env: { NLT_AGENT_ENABLED?: string | undefined; NLT_AGENT_MODELS?: string | undefined };
+  env: { NLT_AGENT_ENABLED?: string | undefined; NLT_AGENT_MODELS?: string | undefined; NLT_AGENT_DEFAULT_MODEL?: string | undefined };
   /** True only for a signed-in owner. */
   authorize: (request: AgentRequest) => boolean;
   /** Reads the live gateway catalog. Throws when it cannot be read. */
@@ -49,7 +49,9 @@ export async function handleModelsRequest(request: AgentRequest, response: Agent
   try {
     const catalog = await deps.fetchCatalog();
     const allowed = parseAllowedModels(deps.env.NLT_AGENT_MODELS);
-    const models = selectFreeModels(catalog, { requireToolUse: true, allowed }).map(toListedModel);
+    // The owner's default comes first, so the list matches what "Auto" picks.
+    const preferred = parseDefaultModel(deps.env.NLT_AGENT_DEFAULT_MODEL);
+    const models = selectFreeModels(catalog, { requireToolUse: true, allowed, preferred }).map(toListedModel);
     response.status(200).json({ models });
   } catch {
     response.status(503).json({ error: "Model list unavailable", models: [] });

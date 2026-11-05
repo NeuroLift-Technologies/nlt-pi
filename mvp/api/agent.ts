@@ -14,7 +14,7 @@ import { sessionFromCookie } from "../src/auth/owner.ts";
 import { evaluateGate } from "../src/gate.ts";
 import { AsfdkHarness, Channel } from "../src/harness/harness.ts";
 import { createVercelSandboxClient } from "../src/sandbox/vercel-client.ts";
-import { parseAllowedModels } from "../src/gateway/free-models.ts";
+import { parseAllowedModels, parseDefaultModel } from "../src/gateway/free-models.ts";
 
 /** Runs the ASFDK crisis gate for one prompt; fails closed when the assessment cannot run. */
 async function gate(prompt: string) {
@@ -47,6 +47,8 @@ export default async function handler(request: AgentRequest, response: AgentResp
       gatewayToken: () => getVercelOidcToken(),
       // Owner-set allow-list of models this plan can call; unset means any free tool-capable model.
       allowedModels: parseAllowedModels(process.env.NLT_AGENT_MODELS),
+      // Owner-set default for "Auto"; used only while it is free, tool-capable and allowed.
+      preferredModels: parseDefaultModel(process.env.NLT_AGENT_DEFAULT_MODEL),
       sandbox: { egressAll, lockStaleMs: AGENT_LOCK_STALE_MS },
     }),
     run: async (deps: AgentRunnerDeps, input: AgentTurnInput): Promise<AgentTurnResult> => {

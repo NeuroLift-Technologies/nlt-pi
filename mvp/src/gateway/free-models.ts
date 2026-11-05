@@ -129,6 +129,16 @@ export function parseAllowedModels(value: string | undefined): string[] | undefi
   return ids.length > 0 ? ids : undefined;
 }
 
+/**
+ * Reads the owner's default model (`NLT_AGENT_DEFAULT_MODEL`) as a preference list of at most one id. The default is
+ * only a preference: it is used when it is free, tool-capable and allowed right now, and otherwise the usual order
+ * applies. Blank means no default.
+ */
+export function parseDefaultModel(value: string | undefined): string[] {
+  const id = typeof value === "string" ? value.trim() : "";
+  return id.length > 0 ? [id] : [];
+}
+
 /** Reads and shape-checks the public catalog. Throws if it cannot be read or is not a model list. */
 export async function fetchGatewayCatalog(
   options: { fetchImpl?: typeof fetch; url?: string; timeoutMs?: number } = {},

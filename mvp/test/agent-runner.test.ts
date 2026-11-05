@@ -454,6 +454,13 @@ describe("runAgentTurn", () => {
       expect(result).toMatchObject({ status: "completed", model: "synthetic/other-free-model" });
     });
 
+    it("uses the owner's default model when none is requested", async () => {
+      stubCatalog();
+      const { deps, faux } = setup({ pickModel: undefined, preferredModels: ["synthetic/free-model"] });
+      faux.setResponses([fauxAssistantMessage("fine")]);
+      expect(await runAgentTurn(deps, { prompt: "x" })).toMatchObject({ status: "completed", model: "synthetic/free-model" });
+    });
+
     it("picks only from the owner's allow-list, and refuses a request outside it", async () => {
       stubCatalog();
       const { deps, faux } = setup({ pickModel: undefined, allowedModels: ["synthetic/free-model"] });
