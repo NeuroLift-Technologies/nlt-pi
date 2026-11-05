@@ -1,0 +1,40 @@
+{
+  "handoff_record": {
+    "session_id": "session_01UNjnjkGsveT9DW8pC9UXhf",
+    "agent_name": "Claude Code",
+    "date": "2026-11-05T22:15:00+00:00",
+    "otoi_version": "NLT-PI-DEV-OTOI-1.0.1",
+    "repo": "NeuroLift-Technologies/nlt-pi",
+    "branch": "ccr-50842984-chat-history",
+    "work_completed": [
+      "Listed (names only, no values) the env vars added by the owner's Mem0 and Neon integrations.",
+      "Worked through the design with the owner: chat history in Neon first; save and show only (no agent context); kept until deleted; blocked messages as a placeholder without text; the page saves (approach A). Spec committed: docs/superpowers/specs/2026-11-05-chat-history-neon-design.md. Plan written locally (docs/superpowers/plans/ is gitignored) and sent to the owner.",
+      "Reviewed docs.mem0.ai/integrations/pi-agent and @mem0/pi-agent-plugin 0.3.2 at the owner's request; recorded as the input to the Mem0 memory-layer phase.",
+      "Intent record docs/agent-log/intent/2026-11-05-chat-history-neon.md.",
+      "Pinned @neondatabase/serverless 1.2.0: no deps, no install scripts, npm audit clean, published 2026-10-01. The lockfile change was acknowledged with PI_ALLOW_LOCKFILE_CHANGE=1 after the hook's checklist; all hooks ran.",
+      "src/history/store.ts (SQL over a SqlRunner adapter; schema once per store; owner filter on every statement; transactional save with an owner-guarded, idempotent message insert), src/history/route.ts (switch, 401/405/503, validation, blocked text cleared, owner from session only, 404 for another owner, op-only error log), api/conversations.ts (per-process store), public/lib/history.js (pure helpers) and app.js/index.html/app.css wiring (sidebar load, save with retry, open, delete with confirmation, notice switch).",
+      "README 'Chat history' section and active-threads NLTPI-MVP-006."
+    ],
+    "verification": [
+      "cd mvp && npx tsc --noEmit -p . : passed",
+      "cd mvp && npx vitest --run : 14 files, 243 passed, 10 expected fail",
+      "cd mvp && node --test test/*.test.js : 33 passed",
+      "Mutation checks: removing the owner filter from DELETE, removing the blocked-text clearing, and taking the owner from the body each fail a test; restored.",
+      "Playwright check of public/ with stubbed /api routes: history off shows no change and no saves; history on switches the notice, lists, saves an exchange, opens a saved conversation (blocked shown as placeholder) and deletes after confirmation; no page errors. Throwaway, not committed.",
+      "Root checks and governance validator: see PR #35.",
+      "Not run: a real Neon connection or schema creation."
+    ],
+    "work_in_progress": [],
+    "blockers": [],
+    "decisions_made": [
+      "Owner (2026-11-05): Neon for chat history first; Mem0 later as the intelligent memory layer.",
+      "Owner (2026-11-05): save and show only; kept until deleted; blocked messages as placeholder; the page saves.",
+      "Owner (2026-11-05): spec approved; native execution."
+    ],
+    "decisions_pending": [
+      "Owner: merge nlt-pi#35 and set NLT_HISTORY_ENABLED=1 in Production.",
+      "Owner: design the Mem0 memory-layer phase (the plugin, locked down, versus an NLT-owned module)."
+    ],
+    "next_action": "After merge and NLT_HISTORY_ENABLED=1 plus redeploy: send one message, reload, and confirm it is listed and opens."
+  }
+}
