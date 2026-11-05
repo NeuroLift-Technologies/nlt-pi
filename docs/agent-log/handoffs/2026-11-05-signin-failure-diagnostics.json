@@ -25,12 +25,12 @@
       "Root cause of the sign-in failure is still unknown until this change is deployed to production and the owner signs in once."
     ],
     "decisions_made": [
-      "Owner: change the allow-list and redeploy production (2026-11-05)."
+      "Owner: change the allow-list and redeploy production (2026-11-05).",
+      "Owner (2026-11-05): logging the refused sub and username of a not-allowed sign-in in the Vercel runtime logs is acceptable; the owner is the only user."
     ],
     "decisions_pending": [
       "Owner: review and merge the diagnostics PR, which redeploys production from main.",
-      "Owner: keep 'jdub1216' on the allow-list or replace it with the real `sub` once the log shows it (a username can change; an id is stable).",
-      "Owner: logging the refused sub/username of a not-allowed sign-in in Vercel runtime logs is acceptable, or reduce it to the reason only."
+      "Owner: keep 'jdub1216' on the allow-list or replace it with the real `sub` once the log shows it (a username can change; an id is stable)."
     ],
     "next_action": "After merge and deploy, sign in once at https://nlt-pi-mvp.vercel.app, then read the `nlt-signin: failed` line in the Vercel runtime logs (Hobby keeps about 1 hour)."
   }
