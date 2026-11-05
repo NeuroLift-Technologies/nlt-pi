@@ -5,7 +5,7 @@
     "date": "2026-11-05T20:55:00+00:00",
     "otoi_version": "NLT-PI-DEV-OTOI-1.0.1",
     "repo": "NeuroLift-Technologies/nlt-pi",
-    "branch": "ccr-50842984-ofpdnx",
+    "branch": "ccr-50842984-agent-reason",
     "work_completed": [
       "Read the sign-in failure line added by nlt-pi#32: every attempt logged `reason=bad_request vercel_error=invalid_scope`. The owner enabled the Sign in with Vercel app's permissions; sign-in now works (no failure lines after 20:42 UTC; the owner's screenshot shows 'Signed in as jdub1216').",
       "At the owner's request, created NLT_AGENT_ENABLED=1 (Production only; NLT_AGENT_EGRESS_ALL left unset, so egress stays on the allowlist) and redeployed production (dpl_A9SaAPSGDKfNfRV694pFfHnrtvJM, commit 5ffce5e).",
