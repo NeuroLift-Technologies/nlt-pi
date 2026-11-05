@@ -184,6 +184,22 @@ describe("handleAgentRequest", () => {
     expect(line).not.toContain("secret-prompt-text");
   });
 
+  it("logs each turn's outcome and reason, without the prompt or the model's text", async () => {
+    const failed = makeDeps(on, { status: "error", reason: `Gateway returned 401 ${"y".repeat(500)}` });
+    await handleAgentRequest(post({ prompt: "secret-prompt-text" }), makeResponse().response, failed.deps);
+    const line = JSON.parse(String(failed.log.mock.calls.at(-1)?.[0]));
+    expect(line).toEqual({ event: "agent_turn_done", status: "error", reason: `Gateway returned 401 ${"y".repeat(279)}` });
+
+    const ok = makeDeps(on);
+    await handleAgentRequest(post({ prompt: "secret-prompt-text" }), makeResponse().response, ok.deps);
+    const done = String(ok.log.mock.calls.at(-1)?.[0]);
+    expect(JSON.parse(done)).toEqual({ event: "agent_turn_done", status: "completed", model: "free/model" });
+    for (const call of [...failed.log.mock.calls, ...ok.log.mock.calls]) {
+      expect(String(call[0])).not.toContain("secret-prompt-text");
+      expect(String(call[0])).not.toContain('"hi"');
+    }
+  });
+
   it("enables egressAll only from the owner flag, never the request body", async () => {
     const withBody = makeDeps(on);
     await handleAgentRequest(post({ prompt: "hi", egressAll: true, network: "allow-all" }), makeResponse().response, withBody.deps);

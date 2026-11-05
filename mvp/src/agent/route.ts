@@ -207,6 +207,20 @@ export async function handleAgentRequest(
   } catch {
     result = { status: "error", reason: "Agent turn failed" };
   }
-  send({ type: "done", ...describeResult(result) });
+  const done = describeResult(result);
+  // The outcome goes to the server log so a failed turn can be diagnosed; the prompt and the model's text never do.
+  deps.log(JSON.stringify({ event: "agent_turn_done", ...logSafeOutcome(done) }));
+  send({ type: "done", ...done });
   response.end();
+}
+
+/** Longest reason written to the server log. */
+const MAX_LOGGED_REASON_LENGTH = 300;
+
+/** The status, model and reason of a finished turn, with the reason shortened for the log. */
+function logSafeOutcome(done: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { status: done.status };
+  if (typeof done.model === "string") out.model = done.model;
+  if (typeof done.reason === "string") out.reason = done.reason.slice(0, MAX_LOGGED_REASON_LENGTH);
+  return out;
 }
