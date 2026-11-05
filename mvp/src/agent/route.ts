@@ -13,6 +13,7 @@
  */
 import type { AgentRunnerDeps, AgentTurnInput, AgentTurnResult } from "./runner.ts";
 import { DEFAULT_AGENT_EGRESS } from "../sandbox/lifecycle.ts";
+import { redactForLog } from "./log-redact.ts";
 
 export const MAX_AGENT_PROMPT_LENGTH = 8000;
 
@@ -214,13 +215,13 @@ export async function handleAgentRequest(
   response.end();
 }
 
-/** Longest reason written to the server log. */
-const MAX_LOGGED_REASON_LENGTH = 300;
-
-/** The status, model and reason of a finished turn, with the reason shortened for the log. */
+/**
+ * The status, model and reason of a finished turn, for the server log. `status` is the stable category; the reason is
+ * redacted (credentials, query strings, control characters) and shortened. The browser's copy is not changed.
+ */
 function logSafeOutcome(done: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { status: done.status };
-  if (typeof done.model === "string") out.model = done.model;
-  if (typeof done.reason === "string") out.reason = done.reason.slice(0, MAX_LOGGED_REASON_LENGTH);
+  if (typeof done.model === "string") out.model = redactForLog(done.model);
+  if (typeof done.reason === "string") out.reason = redactForLog(done.reason);
   return out;
 }

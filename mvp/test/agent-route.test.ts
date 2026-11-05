@@ -185,10 +185,18 @@ describe("handleAgentRequest", () => {
   });
 
   it("logs each turn's outcome and reason, without the prompt or the model's text", async () => {
-    const failed = makeDeps(on, { status: "error", reason: `Gateway returned 401 ${"y".repeat(500)}` });
-    await handleAgentRequest(post({ prompt: "secret-prompt-text" }), makeResponse().response, failed.deps);
+    const reason = "Gateway returned 401 for https://ai-gateway.example/v1/chat?key=abc123 with Authorization: Bearer sk-test-0123456789abcdef";
+    const failed = makeDeps(on, { status: "error", reason });
+    const browser = makeResponse();
+    await handleAgentRequest(post({ prompt: "secret-prompt-text" }), browser.response, failed.deps);
     const line = JSON.parse(String(failed.log.mock.calls.at(-1)?.[0]));
-    expect(line).toEqual({ event: "agent_turn_done", status: "error", reason: `Gateway returned 401 ${"y".repeat(279)}` });
+    expect(line.event).toBe("agent_turn_done");
+    expect(line.status).toBe("error");
+    expect(line.reason).toContain("Gateway returned 401");
+    for (const leaked of ["abc123", "sk-test-0123456789abcdef"]) expect(line.reason).not.toContain(leaked);
+    // The browser's copy of the reason is the owner's diagnostic and is not changed by the log redaction.
+    const doneEvent = JSON.parse(browser.out.chunks.at(-1) as string);
+    expect(doneEvent.reason).toBe(reason);
 
     const ok = makeDeps(on);
     await handleAgentRequest(post({ prompt: "secret-prompt-text" }), makeResponse().response, ok.deps);
