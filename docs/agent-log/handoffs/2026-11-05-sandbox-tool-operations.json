@@ -21,7 +21,8 @@
       "Fixed the failing Vercel preview build on 6ae8735 (root cause from the Vercel build log: model data not hydrated before build:offline); build now hydrates, builds, and asserts the Pi package entry.",
       "Owner sign-in with Vercel (OAuth + PKCE), signed session cookie, owner allow-list, 401 on /api/agent without a session, header shows sign-in state. Offline tests only.",
       "Copy and records cleanup after #26/#27 merged: chat banner no longer says no model is connected; README notes sign-in needs HTTPS; active-threads MVP-004/005 brought up to date, including the parked client-secret question.",
-      "Data notice on the chat page and records for the free-only retention decision. Privacy-first variant kept in a local stash only."
+      "Data notice on the chat page and records for the free-only retention decision. Privacy-first variant kept in a local stash only.",
+      "Addressed the owner's review of PR #29: the chat-page notice is now worded for the case where a turn actually runs (it renders even while the route is off or the owner is signed out), and NLTPI-MVP-003 plus the route entry above it were reconciled with the merged route (#26, #27) and the decided retention question; the contradicting 'rather than a user-facing notice' wording and the remaining 'retention settings pending' item are gone."
     ],
     "work_in_progress": [],
     "blockers": [
@@ -79,7 +80,7 @@
       "mvp/public/index.html",
       "mvp/public/app.css"
     ],
-    "tests_run": "mvp typecheck (tsc --noEmit -p tsconfig.typecheck.json) and mvp vitest run in the cloud container: operations, lifecycle (including the lock scripts in a real shell, with 8 concurrent reclaimers) and free-model tests; governance validator. Root npm run check and CI not run by the author.",
+    "tests_run": "mvp typecheck (tsc --noEmit -p tsconfig.typecheck.json) and mvp vitest run in the cloud container: operations, lifecycle (including the lock scripts in a real shell, with 8 concurrent reclaimers) and free-model tests; governance validator. Root npm run check and CI not run by the author. PR #29 review round, in a fresh clone (npm ci, hydrate:model-data, build): root npm run check (the pre-commit hook, including biome, all five check:* scripts, root and examples tsc --noEmit, check:browser-smoke and check:mvp); cd mvp && npx tsc --noEmit -p . (0 errors) and npx vitest --run (202 passed, 10 expected fail); node --test mvp/test/*.test.js (22 passed); the chat page served locally and rendered in headless Chromium at 1440x1200 and 390x1400 with the new notice, no horizontal overflow and no script errors (the /api endpoints are absent on a static server, so the page shows its unavailable state).",
     "tests_passing": true,
     "pr_url": null
   }
