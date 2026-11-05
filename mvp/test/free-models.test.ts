@@ -171,8 +171,12 @@ describe("owner model allow-list", () => {
 
   it("picks only from the allow-list, refuses a request outside it, and says why when nothing is left", async () => {
     expect((await pickFreeModel({ fetchImpl: response({ data: catalog }), allowed: ["free-small"] })).id).toBe("free-small");
-    await expect(pickFreeModel({ fetchImpl: response({ data: catalog }), allowed: ["free-small"], requested: "free-big" })).rejects.toBeInstanceOf(
-      NoFreeModelError,
+    await expect(pickFreeModel({ fetchImpl: response({ data: catalog }), allowed: ["free-small"], requested: "free-big" })).rejects.toThrow(
+      /not in the owner's allowed models \(NLT_AGENT_MODELS\): free-big/,
+    );
+    // A priced request is reported as not free, whether or not an allow-list is set.
+    await expect(pickFreeModel({ fetchImpl: response({ data: catalog }), allowed: ["free-small"], requested: "priced" })).rejects.toThrow(
+      /not a free model right now: priced/,
     );
     await expect(pickFreeModel({ fetchImpl: response({ data: catalog }), allowed: ["priced"] })).rejects.toThrow(/NLT_AGENT_MODELS/);
   });

@@ -183,7 +183,17 @@ export async function pickFreeModel(options: PickOptions = {}): Promise<GatewayC
   if (options.requested !== undefined) {
     const match = free.find((model) => model.id === options.requested);
     if (!match) {
-      throw new NoFreeModelError(`The requested model is not a free model right now: ${options.requested}`);
+      // Say which rule refused it: the owner's allow-list, or "not free / not tool-capable right now".
+      const requested = options.requested;
+      const refusedOnlyByAllowList =
+        options.allowed !== undefined &&
+        options.allowed.length > 0 &&
+        selectFreeModels(catalog, { ...options, allowed: undefined }).some((model) => model.id === requested);
+      throw new NoFreeModelError(
+        refusedOnlyByAllowList
+          ? `The requested model is not in the owner's allowed models (NLT_AGENT_MODELS): ${requested}`
+          : `The requested model is not a free model right now: ${requested}`,
+      );
     }
     return match;
   }
