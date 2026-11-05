@@ -42,31 +42,94 @@ export function interpretConversation(result) {
   };
 }
 
+/** Server limits (src/history/route.ts), applied here so a save is never rejected for them. */
+export const MAX_SAVE_BATCH = 20;
+export const MAX_SAVED_TEXT = 20_000;
+const MAX_TITLE_CHARS = 80;
+export const TRUNCATED = "…(truncated)";
+
+/** Cuts by characters (code points), so an emoji is never split, and drops any lone surrogate. */
+function cutChars(text, max) {
+  const chars = Array.from(String(text).toWellFormed());
+  return chars.length > max ? chars.slice(0, max).join("") : chars.join("");
+}
+
+/** A sidebar title from the first prompt: at most `max` characters, plus "…" when cut. */
+export function shortTitle(text, max) {
+  const clean = String(text).toWellFormed();
+  return Array.from(clean).length > max ? `${cutChars(clean, max)}…` : clean;
+}
+
+/** The title sent to the server: well formed, trimmed, 1 to 80 characters. */
+export function saveTitle(title) {
+  const cut = cutChars(String(title ?? "").trim(), MAX_TITLE_CHARS).trim();
+  return cut.length > 0 ? cut : "Conversation";
+}
+
 /**
- * The POST body for an exchange. Skips the page's own messages (kind "info") and any without an id. Page kinds map to
- * stored kinds ("allowed" and unknown kinds become "normal"). If any message of the exchange is blocked, every message
- * of it is sent as blocked with empty text, so the prompt that was stopped is never stored.
- *
- * @returns {{ conversation: { id: string, title: string }, messages: object[] } | undefined}
+ * One finished exchange in stored form. Skips the page's own messages (kind "info") and any without an id. Page kinds
+ * map to stored kinds ("allowed" and unknown kinds become "normal"). If any message of this exchange is blocked, every
+ * message of it is stored as blocked with empty text, so the prompt that was stopped is never kept, not even in the
+ * page's retry queue. Text is cut to the server's limit with a marker, and a time ahead of `now` becomes `now`.
  */
-export function toSaveBody(conversation, messages) {
-  const kept = messages.filter((m) => isRecord(m) && typeof m.id === "string" && m.kind !== "info");
-  if (kept.length === 0) return undefined;
+export function toStoredMessages(exchange, now = Date.now()) {
+  const kept = exchange.filter((m) => isRecord(m) && typeof m.id === "string" && m.kind !== "info");
   const blocked = kept.some((m) => m.kind === "blocked");
+  return kept.map((m) => {
+    const kind = blocked ? "blocked" : STORED_KINDS.has(m.kind) ? m.kind : "normal";
+    const raw = kind === "blocked" ? "" : String(m.text ?? "").toWellFormed();
+    const text = raw.length > MAX_SAVED_TEXT ? `${raw.slice(0, MAX_SAVED_TEXT - TRUNCATED.length).toWellFormed()}${TRUNCATED}` : raw;
+    const at = m.at instanceof Date ? m.at.getTime() : Date.parse(m.at ?? "");
+    const out = {
+      id: m.id,
+      role: m.role === "user" ? "user" : "assistant",
+      kind,
+      text,
+      createdAt: new Date(Number.isFinite(at) ? Math.min(at, now) : now).toISOString(),
+    };
+    if (typeof m.model === "string") out.model = m.model.slice(0, 200);
+    return out;
+  });
+}
+
+/**
+ * Saves exchanges for each conversation, one request at a time per conversation. Messages wait in
+ * `conversation.unsaved` until the server accepts them; a failed request keeps them for the next exchange, and a
+ * rejected batch (400) is dropped so it cannot block later saves. Sets `conversation.saveState` ("saved"/"unsaved"),
+ * `conversation.stored` once anything was accepted, and `conversation.saving` (the running chain).
+ *
+ * @param {(body: object) => Promise<{ status?: number }>} send
+ */
+export function createSaver(send) {
+  async function flush(conversation) {
+    while (conversation.unsaved.length > 0) {
+      const batch = conversation.unsaved.slice(0, MAX_SAVE_BATCH);
+      const result = await send({ conversation: { id: conversation.id, title: saveTitle(conversation.title) }, messages: batch });
+      if (result?.status === 200 || result?.status === 400) {
+        const sent = new Set(batch.map((m) => m.id));
+        conversation.unsaved = conversation.unsaved.filter((m) => !sent.has(m.id));
+        if (result.status === 200) conversation.stored = true;
+        else conversation.dropped = true;
+        continue;
+      }
+      break; // keep everything for the next exchange
+    }
+    conversation.saveState = conversation.unsaved.length === 0 && !conversation.dropped ? "saved" : "unsaved";
+  }
+
   return {
-    conversation: { id: conversation.id, title: conversation.title },
-    messages: kept.map((m) => {
-      const kind = blocked ? "blocked" : STORED_KINDS.has(m.kind) ? m.kind : "normal";
-      const out = {
-        id: m.id,
-        role: m.role === "user" ? "user" : "assistant",
-        kind,
-        text: kind === "blocked" ? "" : String(m.text ?? ""),
-        createdAt: (m.at instanceof Date ? m.at : new Date(m.at ?? Date.now())).toISOString(),
-      };
-      if (typeof m.model === "string") out.model = m.model;
-      return out;
-    }),
+    /** Queues an exchange and resolves when this conversation's saves have settled. Never rejects. */
+    enqueue(conversation, exchange, now = Date.now()) {
+      conversation.unsaved = mergePending(conversation.unsaved ?? [], toStoredMessages(exchange, now));
+      conversation.saving = (conversation.saving ?? Promise.resolve()).then(() => flush(conversation)).catch(() => {
+        conversation.saveState = "unsaved";
+      });
+      return conversation.saving;
+    },
+    /** Resolves once no save is running for this conversation. */
+    idle(conversation) {
+      return conversation.saving ?? Promise.resolve();
+    },
   };
 }
 

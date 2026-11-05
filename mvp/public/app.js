@@ -12,7 +12,7 @@ import {
   resultLabel,
   validatePrompt,
 } from "./lib/decision.js";
-import { BLOCKED_PLACEHOLDER, HISTORY_NOTICE, interpretConversation, interpretHistoryList, mergePending, toSaveBody } from "./lib/history.js";
+import { BLOCKED_PLACEHOLDER, HISTORY_NOTICE, createSaver, interpretConversation, interpretHistoryList, shortTitle } from "./lib/history.js";
 
 /**
  * Chat page for the nlt-pi MVP.
@@ -72,6 +72,8 @@ const tabSession = { id: crypto.randomUUID().slice(0, 8), startedAt: new Date() 
 const conversations = [];
 /** True only after GET /api/conversations answered 200 for this tab. */
 let historyOn = false;
+/** One save at a time per conversation; see lib/history.js. */
+const saver = createSaver((body) => historyRequest("POST", { body }));
 let active = null;
 let pending = false;
 const latencies = [];
@@ -168,6 +170,8 @@ function newConversation() {
     id: crypto.randomUUID(),
     title: "New conversation",
     startedAt: new Date(),
+    // Started in this tab, so everything it holds is already here.
+    loaded: true,
     messages: [
       {
         role: "assistant",
@@ -324,12 +328,19 @@ async function submit(raw) {
   if (!checked.ok) return;
 
   const conversation = active;
+  // A saved conversation is not ready until its messages have loaded: sending earlier would mix the new exchange with
+  // the loading one. Keep the prompt and (re)try the load instead.
+  if (conversation.stored && !conversation.loaded) {
+    logEvent("Loading the saved conversation first", "busy");
+    loadSaved(conversation);
+    return;
+  }
   const isFirst = conversation.messages.filter((message) => message.role === "user").length === 0;
   const exchangeStart = conversation.messages.length;
   const userMessage = { id: crypto.randomUUID(), role: "user", text: checked.prompt, at: new Date() };
   conversation.messages.push(userMessage);
   if (isFirst) {
-    conversation.title = checked.prompt.length > 28 ? `${checked.prompt.slice(0, 28)}…` : checked.prompt;
+    conversation.title = shortTitle(checked.prompt, 28);
     els.title.textContent = conversation.title;
   }
   els.prompt.value = "";
@@ -403,29 +414,21 @@ async function historyRequest(method, { id, body } = {}) {
   }
 }
 
-/** Saves a finished exchange, with anything a failed save left behind. Chat never waits on it. */
-async function saveExchange(conversation, exchange) {
+/** Saves a finished exchange (one save at a time per conversation). Chat never waits on it. */
+function saveExchange(conversation, exchange) {
   if (!historyOn) return;
-  const queued = mergePending(conversation.unsaved ?? [], exchange);
-  const body = toSaveBody(conversation, queued);
-  if (!body) return;
-  const result = await historyRequest("POST", { body });
-  if (result.status === 200) {
-    conversation.unsaved = [];
-    conversation.stored = true;
-    conversation.loaded = true;
-    conversation.saveState = "saved";
-  } else {
-    conversation.unsaved = queued;
-    conversation.saveState = "unsaved";
-  }
+  saver.enqueue(conversation, exchange).then(renderSessions);
   renderSessions();
 }
 
 /** Loads a saved conversation's messages the first time it is opened. */
 async function loadSaved(conversation) {
+  if (conversation.loading) return;
+  conversation.loading = true;
   const read = interpretConversation(await historyRequest("GET", { id: conversation.id }));
+  conversation.loading = false;
   if (!read) {
+    // Stays not loaded, so opening it again or sending in it retries the load.
     logEvent("Could not load the saved conversation", "offline");
     return;
   }
@@ -443,11 +446,14 @@ async function loadSaved(conversation) {
 /** Deletes a saved conversation after confirmation; removes it from the sidebar only when the server agreed. */
 async function deleteConversation(conversation) {
   if (pending || !window.confirm("Delete this conversation?")) return;
+  // Let a save that is still running finish first, so it cannot re-create the conversation after the delete.
+  await saver.idle(conversation);
   const result = await historyRequest("DELETE", { id: conversation.id });
   if (result.status !== 200) {
     logEvent("Could not delete the conversation", "offline");
     return;
   }
+  conversation.unsaved = [];
   conversations.splice(conversations.indexOf(conversation), 1);
   logEvent("Conversation deleted", "idle");
   if (conversation === active) newConversation();
