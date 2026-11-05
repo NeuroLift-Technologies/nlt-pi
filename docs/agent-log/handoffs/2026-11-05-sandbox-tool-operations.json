@@ -40,7 +40,6 @@
     ],
     "decisions_pending": [
       "Sandbox cost against the owner's plan.",
-      "Retention settings for gateway requests (NLTPI-MVP-003).",
       "Real Hobby sandbox limits: docs say 10 concurrent sessions and a 45-minute cap, owner says 1 sandbox. Unverified until a sandbox is created; handle a limit error from getOrCreate as a clear 'sandbox unavailable' message.",
       "Which caller may set egressAll, and by what owner-set environment flag (the agent route; see NLTPI-MVP-005).",
       "Owner: set NLT_AGENT_ENABLED in one environment, approve a first real gateway/sandbox run (cost), and confirm the workspace root, the OIDC token on a deployment and streaming through Vercel; none were run.",
