@@ -71,7 +71,8 @@ test("an exchange is stored without the welcome message, with page kinds mapped"
   );
   assert.deepEqual(stored, [
     { id: U, role: "user", kind: "normal", text: "list files", createdAt: at.toISOString() },
-    { id: A, role: "assistant", kind: "normal", text: "done", createdAt: at.toISOString(), model: "synthetic/free" },
+    // One millisecond later than the prompt, so the stored order is kept.
+    { id: A, role: "assistant", kind: "normal", text: "done", createdAt: new Date(at.getTime() + 1).toISOString(), model: "synthetic/free" },
   ]);
   assert.deepEqual(toStoredMessages([{ id: U, kind: "info", role: "assistant", text: "Hello.", at }], NOW), []);
 });
@@ -236,4 +237,63 @@ test("idle waits for a running save, so a delete cannot race it", async () => {
   await saver.idle(conversation);
   order.push("delete");
   assert.deepEqual(order, ["saved", "delete"]);
+});
+
+test("titles fit the server's UTF-16 limit and never end in half an emoji", () => {
+  const title = saveTitle("😀".repeat(50));
+  assert.ok(title.length <= 80, `length ${title.length}`);
+  assert.equal(title.isWellFormed(), true);
+  assert.equal(saveTitle("a\u0000b"), "ab");
+});
+
+test("titles work where String.prototype.toWellFormed is missing", () => {
+  const original = String.prototype.toWellFormed;
+  // biome-ignore lint/performance/noDelete: simulating an older browser
+  delete String.prototype.toWellFormed;
+  try {
+    assert.equal(shortTitle("😀".repeat(40), 28).length > 0, true);
+    assert.equal(saveTitle("x\ud83d"), "x�");
+    assert.equal(toStoredMessages([{ id: U, role: "user", text: "a\ud83d", at }], NOW)[0].text, "a�");
+  } finally {
+    String.prototype.toWellFormed = original;
+  }
+});
+
+test("NUL characters are removed before saving, so Postgres never rejects a batch", () => {
+  const [m] = toStoredMessages([{ id: U, role: "user", text: "a\u0000b", at, model: "m\u0000" }], NOW);
+  assert.equal(m.text, "ab");
+  assert.equal(m.model, "m");
+});
+
+test("messages of one exchange keep their order even with the same time", () => {
+  const stored = toStoredMessages(
+    [
+      { id: U, role: "user", text: "q", at },
+      { id: A, role: "assistant", text: "a", at },
+    ],
+    NOW,
+  );
+  assert.ok(Date.parse(stored[1].createdAt) > Date.parse(stored[0].createdAt));
+});
+
+test("a batch stays under the server's body limit, splitting long multibyte messages", async () => {
+  const fake = fakeSend([]);
+  const saver = createSaver(fake.send);
+  const conversation = { id: C, title: "T" };
+  const big = Array.from({ length: 20 }, (_, n) => ({ id: `b${String(n).padStart(7, "0")}-1111-4111-8111-111111111111`, role: "assistant", text: "é".repeat(19_000), at }));
+  await saver.enqueue(conversation, big, NOW);
+  assert.ok(fake.bodies.length > 1);
+  for (const body of fake.bodies) assert.ok(Buffer.byteLength(JSON.stringify(body), "utf8") <= 500_000);
+  assert.equal(fake.bodies.flatMap((b) => b.messages).length, 20);
+  assert.equal(conversation.saveState, "saved");
+});
+
+test("a conversation shows as saving while its save runs", async () => {
+  const fake = fakeSend([200]);
+  const saver = createSaver(fake.send);
+  const conversation = { id: C, title: "T", saveState: "saved" };
+  const done = saver.enqueue(conversation, exchange(1, "allowed"), NOW);
+  assert.equal(conversation.saveState, "saving");
+  await done;
+  assert.equal(conversation.saveState, "saved");
 });

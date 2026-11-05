@@ -169,6 +169,15 @@ describe("history route", () => {
     expect(conversations.get(CONV)?.messages[0]?.text).toBe("");
   });
 
+  it("removes NUL characters, which Postgres text cannot hold", async () => {
+    const { store, conversations } = fakeStore();
+    const { deps } = makeDeps({}, store);
+    const out = await call({ method: "POST", body: saveBody({ conversation: { id: CONV, title: "T\u0000itle" }, messages: [message({ text: "a\u0000b", model: "m\u0000" })] }) }, deps);
+    expect(out.status).toBe(200);
+    expect(conversations.get(CONV)?.c.title).toBe("Title");
+    expect(conversations.get(CONV)?.messages[0]).toMatchObject({ text: "ab", model: "m" });
+  });
+
   it("uses the session owner, never the body", async () => {
     const { store, conversations } = fakeStore();
     const { deps } = makeDeps({}, store);

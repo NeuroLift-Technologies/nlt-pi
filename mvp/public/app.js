@@ -12,7 +12,7 @@ import {
   resultLabel,
   validatePrompt,
 } from "./lib/decision.js";
-import { BLOCKED_PLACEHOLDER, HISTORY_NOTICE, createSaver, interpretConversation, interpretHistoryList, shortTitle } from "./lib/history.js";
+import { BLOCKED_PLACEHOLDER, BLOCKED_TITLE, HISTORY_NOTICE, createSaver, interpretConversation, interpretHistoryList, shortTitle } from "./lib/history.js";
 
 /**
  * Chat page for the nlt-pi MVP.
@@ -72,6 +72,11 @@ const tabSession = { id: crypto.randomUUID().slice(0, 8), startedAt: new Date() 
 const conversations = [];
 /** True only after GET /api/conversations answered 200 for this tab. */
 let historyOn = false;
+/** "unknown" until the history check answers; exchanges finished meanwhile wait so they can still be saved. */
+let historyState = "unknown";
+/** The page's own wording, restored when history turns off again (sign-out). */
+const DEFAULT_SAVE_NOTICE = els.saveNotice.textContent;
+const DEFAULT_SESSION_FINE = els.sessionFine.textContent;
 /** One save at a time per conversation; see lib/history.js. */
 const saver = createSaver((body) => historyRequest("POST", { body }));
 let active = null;
@@ -137,7 +142,8 @@ function renderSessions() {
         if (conversation === active) button.setAttribute("aria-current", "true");
         button.append(el("span", "name", conversation.title), el("span", "when", formatClock(conversation.startedAt)));
         if (historyOn && conversation.saveState) {
-          button.append(el("span", `save-state ${conversation.saveState}`, conversation.saveState === "saved" ? "Saved" : "Not saved"));
+          const label = conversation.saveState === "saved" ? "Saved" : conversation.saveState === "saving" ? "Saving…" : "Not saved";
+          button.append(el("span", `save-state ${conversation.saveState}`, label));
         }
         button.addEventListener("click", () => select(conversation));
         item.append(button);
@@ -328,6 +334,8 @@ async function submit(raw) {
   if (!checked.ok) return;
 
   const conversation = active;
+  // A conversation being deleted takes no new turns: a save after the delete would bring it back.
+  if (conversation.deleting) return;
   // A saved conversation is not ready until its messages have loaded: sending earlier would mix the new exchange with
   // the loading one. Keep the prompt and (re)try the load instead.
   if (conversation.stored && !conversation.loaded) {
@@ -378,7 +386,7 @@ async function submit(raw) {
     } else if (agent.done?.status) {
       showGate({ kind: "unavailable", components: [], failClosed: true }, NaN);
     }
-    saveExchange(conversation, conversation.messages.slice(exchangeStart));
+    finishExchange(conversation, conversation.messages.slice(exchangeStart), isFirst);
     els.prompt.focus();
     return;
   }
@@ -395,7 +403,7 @@ async function submit(raw) {
     view.kind === "allowed" ? "online" : view.kind === "blocked" ? "idle" : "offline",
   );
   if (conversation === active) appendMessage(reply);
-  saveExchange(conversation, conversation.messages.slice(exchangeStart));
+  finishExchange(conversation, conversation.messages.slice(exchangeStart), isFirst);
   els.prompt.focus();
 }
 
@@ -414,10 +422,31 @@ async function historyRequest(method, { id, body } = {}) {
   }
 }
 
+/** After an exchange: a blocked first message never names the conversation; then the exchange is saved. */
+function finishExchange(conversation, exchange, isFirst) {
+  if (isFirst && exchange.some((m) => m.kind === "blocked")) {
+    conversation.title = BLOCKED_TITLE;
+    if (conversation === active) els.title.textContent = conversation.title;
+  }
+  saveExchange(conversation, exchange);
+}
+
 /** Saves a finished exchange (one save at a time per conversation). Chat never waits on it. */
 function saveExchange(conversation, exchange) {
-  if (!historyOn) return;
-  saver.enqueue(conversation, exchange).then(renderSessions);
+  if (!historyOn) {
+    // The history check has not answered yet: keep the exchange so it is saved if history turns on.
+    if (historyState === "unknown") conversation.beforeHistory = [...(conversation.beforeHistory ?? []), exchange];
+    return;
+  }
+  saver.enqueue(conversation, exchange).then(() => {
+    if (conversation.saveState === "saved" && conversations.includes(conversation)) {
+      // Newest activity first in the sidebar (it lists the array newest-last).
+      conversation.startedAt = new Date();
+      conversations.splice(conversations.indexOf(conversation), 1);
+      conversations.push(conversation);
+    }
+    renderSessions();
+  });
   renderSessions();
 }
 
@@ -445,11 +474,13 @@ async function loadSaved(conversation) {
 
 /** Deletes a saved conversation after confirmation; removes it from the sidebar only when the server agreed. */
 async function deleteConversation(conversation) {
-  if (pending || !window.confirm("Delete this conversation?")) return;
+  if (pending || conversation.deleting || !window.confirm("Delete this conversation?")) return;
+  conversation.deleting = true;
   // Let a save that is still running finish first, so it cannot re-create the conversation after the delete.
   await saver.idle(conversation);
   const result = await historyRequest("DELETE", { id: conversation.id });
   if (result.status !== 200) {
+    conversation.deleting = false;
     logEvent("Could not delete the conversation", "offline");
     return;
   }
@@ -463,8 +494,13 @@ async function deleteConversation(conversation) {
 /** Turns saved history on for this tab when the server lists conversations; anything else leaves the page as it was. */
 async function loadHistory() {
   const view = interpretHistoryList(await historyRequest("GET"));
-  if (view.state !== "on") return;
+  if (view.state !== "on") {
+    historyState = "off";
+    for (const conversation of conversations) conversation.beforeHistory = undefined;
+    return;
+  }
   historyOn = true;
+  historyState = "on";
   els.saveNotice.textContent = HISTORY_NOTICE;
   els.sessionFine.textContent = "Saved until you delete them (✕).";
   // The sidebar shows the array newest-last; the server lists newest-first.
@@ -479,6 +515,25 @@ async function loadHistory() {
   }));
   conversations.unshift(...saved.reverse());
   renderSessions();
+  // Exchanges that finished while the check was running are saved now, in order.
+  for (const conversation of conversations) {
+    const waiting = conversation.beforeHistory ?? [];
+    conversation.beforeHistory = undefined;
+    for (const exchange of waiting) saveExchange(conversation, exchange);
+  }
+}
+
+/** On sign-out: drop saved conversations and their loaded messages from the tab, and restore the page's notices. */
+function clearHistory() {
+  historyOn = false;
+  historyState = "off";
+  for (let i = conversations.length - 1; i >= 0; i -= 1) {
+    if (conversations[i].stored) conversations.splice(i, 1);
+  }
+  els.saveNotice.textContent = DEFAULT_SAVE_NOTICE;
+  els.sessionFine.textContent = DEFAULT_SESSION_FINE;
+  if (!active || !conversations.includes(active)) newConversation();
+  else renderSessions();
 }
 
 function autosize() {
@@ -562,6 +617,10 @@ async function loadSession() {
     els.accountLabel.textContent = "Sign-in failed, or this Vercel account is not allowed";
   }
   if (view.state === "signed-in" && !historyOn) await loadHistory();
+  else if (view.state !== "signed-in") {
+    if (historyOn) clearHistory();
+    else historyState = "off";
+  }
 }
 
 els.signout.addEventListener("click", async () => {

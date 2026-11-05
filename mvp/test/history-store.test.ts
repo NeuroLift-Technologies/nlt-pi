@@ -70,7 +70,8 @@ describe("createSqlStore", () => {
   });
 
   it("save upserts only the owner's conversation and inserts messages with ON CONFLICT (id) DO NOTHING", async () => {
-    const { runner, calls } = stubRunner((text) => (text.includes("INSERT INTO chat_messages") ? [{ id: MSG }] : []));
+    // On a real database the message insert's owner guard returns no row when the upsert returned none.
+    const { runner, calls } = stubRunner(() => []);
     const store = createSqlStore(runner);
     const result = await store.save(OWNER, saveInput);
     const tx = calls.filter((c) => c.via === "transaction");
@@ -81,7 +82,7 @@ describe("createSqlStore", () => {
     expect(tx[1]?.text).toContain("ON CONFLICT (id) DO NOTHING");
     expect(tx[1]?.text).toMatch(/EXISTS \(SELECT 1 FROM chat_conversations WHERE id = \$\d+ AND owner_sub = \$\d+\)/);
     // The upsert returned no row, so the conversation is not the owner's.
-    expect(result).toEqual({ owned: false, saved: 1 });
+    expect(result).toEqual({ owned: false, saved: 0 });
   });
 
   it("save reports owned and the number of inserted messages", async () => {

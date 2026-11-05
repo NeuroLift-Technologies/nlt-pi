@@ -37,6 +37,9 @@ export function historyEnabled(env: { NLT_HISTORY_ENABLED?: string | undefined }
   return env.NLT_HISTORY_ENABLED === "1";
 }
 
+/** Postgres `text` cannot hold U+0000, so it is removed rather than failing the whole save. */
+const stripNul = (value: string): string => value.replaceAll("\u0000", "");
+
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 
 /** Validates a save body. A `blocked` message always gets empty text. */
@@ -54,7 +57,7 @@ export function parseSaveBody(body: unknown, now: number): SaveInput | { error: 
   if (!isRecord(conversation) || typeof conversation.id !== "string" || !UUID.test(conversation.id)) {
     return { error: "conversation.id must be a UUID" };
   }
-  const title = typeof conversation.title === "string" ? conversation.title.trim() : "";
+  const title = typeof conversation.title === "string" ? stripNul(conversation.title).trim() : "";
   if (title.length < 1 || title.length > MAX_TITLE) return { error: `conversation.title must be 1 to ${MAX_TITLE} characters` };
 
   const raw = body.messages;
@@ -77,8 +80,8 @@ export function parseSaveBody(body: unknown, now: number): SaveInput | { error: 
       role: item.role as MessageRole,
       kind,
       // A message the safety check blocked is kept only as a marker.
-      text: kind === "blocked" ? "" : item.text,
-      model: typeof item.model === "string" ? item.model : null,
+      text: kind === "blocked" ? "" : stripNul(item.text),
+      model: typeof item.model === "string" ? stripNul(item.model) : null,
       createdAt: new Date(at).toISOString(),
     });
   }
