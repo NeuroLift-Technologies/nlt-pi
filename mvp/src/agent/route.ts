@@ -95,8 +95,8 @@ function readPrompt(body: unknown): string | null {
 }
 
 /**
- * Reads the optional `model` field. Returns undefined when absent or blank (automatic choice), the trimmed id
- * when valid, or null when present but not a usable string (the caller rejects the request).
+ * Reads the optional `model` field. Returns undefined when absent or a blank string (automatic choice), the trimmed id
+ * when valid, or null when present but not a usable string, including JSON null (the caller rejects the request).
  */
 function readModel(body: unknown): string | undefined | null {
   let parsed = body;
@@ -109,7 +109,7 @@ function readModel(body: unknown): string | undefined | null {
   }
   if (parsed === null || typeof parsed !== "object") return null;
   const model = (parsed as Record<string, unknown>).model;
-  if (model === undefined || model === null) return undefined;
+  if (model === undefined) return undefined;
   if (typeof model !== "string" || model.length > MAX_AGENT_MODEL_LENGTH) return null;
   const trimmed = model.trim();
   return trimmed.length === 0 ? undefined : trimmed;

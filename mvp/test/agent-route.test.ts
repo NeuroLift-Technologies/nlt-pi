@@ -114,7 +114,6 @@ describe("handleAgentRequest", () => {
       [{ prompt: "hi" }, undefined],
       [{ prompt: "hi", model: "" }, undefined],
       [{ prompt: "hi", model: "   " }, undefined],
-      [{ prompt: "hi", model: null }, undefined],
       [JSON.stringify({ prompt: "hi", model: "synthetic/free-model" }), "synthetic/free-model"],
     ] as const) {
       run.mockClear();
@@ -127,7 +126,7 @@ describe("handleAgentRequest", () => {
 
   it("rejects a model that is not a string or is too long, without running", async () => {
     const { deps, run } = makeDeps(on);
-    for (const model of [5, true, {}, ["a"], "x".repeat(MAX_AGENT_MODEL_LENGTH + 1)]) {
+    for (const model of [null, 5, true, {}, ["a"], "x".repeat(MAX_AGENT_MODEL_LENGTH + 1)]) {
       const r = makeResponse();
       await handleAgentRequest(post({ prompt: "hi", model }), r.response, deps);
       expect(r.out.status).toBe(400);
