@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { GATEWAY_API_URL, bindGatewayModel, runAgentTurn, type AgentRunnerDeps, type ModelBinding } from "../src/agent/runner.ts";
 import { NoFreeModelError, type GatewayCatalogModel } from "../src/gateway/free-models.ts";
 import type { AgentSandbox, AgentSandboxParams, SandboxClient } from "../src/sandbox/lifecycle.ts";
@@ -407,6 +407,52 @@ describe("runAgentTurn", () => {
     const result = await runAgentTurn(deps, { prompt: "x", model: "synthetic/priced-model" });
     expect(result.status).toBe("no_free_model");
     expect(client.calls).toEqual([]);
+  });
+
+  describe("default picker (no injected pickModel)", () => {
+    const catalog = {
+      data: [
+        { id: "synthetic/priced-model", type: "language", tags: ["tool-use"], context_window: 32_000, pricing: { input: "0.1", output: "0.1" } },
+        { id: "synthetic/free-model", type: "language", tags: ["tool-use"], context_window: 32_000, pricing: { input: "0", output: "0" } },
+        { id: "synthetic/other-free-model", type: "language", tags: ["tool-use"], context_window: 64_000, pricing: { input: "0", output: "0" } },
+      ],
+    };
+    const stubCatalog = () => {
+      cleanups.push(() => void vi.unstubAllGlobals());
+      vi.stubGlobal("fetch", async () => new Response(JSON.stringify(catalog), { status: 200, headers: { "content-type": "application/json" } }));
+    };
+
+    it("refuses a requested model that is priced, without substituting a free one", async () => {
+      stubCatalog();
+      const { client, deps } = setup({ pickModel: undefined });
+      const result = await runAgentTurn(deps, { prompt: "x", model: "synthetic/priced-model" });
+      expect(result.status).toBe("no_free_model");
+      expect(client.calls).toEqual([]);
+    });
+
+    it("refuses a requested model that is not listed at all", async () => {
+      stubCatalog();
+      const { client, deps } = setup({ pickModel: undefined });
+      const result = await runAgentTurn(deps, { prompt: "x", model: "synthetic/unknown-model" });
+      expect(result.status).toBe("no_free_model");
+      expect(client.calls).toEqual([]);
+    });
+
+    it("uses the requested free model, not the catalog's best one", async () => {
+      stubCatalog();
+      const { deps, faux } = setup({ pickModel: undefined });
+      faux.setResponses([fauxAssistantMessage("fine")]);
+      const result = await runAgentTurn(deps, { prompt: "x", model: "synthetic/free-model" });
+      expect(result).toMatchObject({ status: "completed", model: "synthetic/free-model" });
+    });
+
+    it("picks the best free model when none is requested", async () => {
+      stubCatalog();
+      const { deps, faux } = setup({ pickModel: undefined });
+      faux.setResponses([fauxAssistantMessage("fine")]);
+      const result = await runAgentTurn(deps, { prompt: "x" });
+      expect(result).toMatchObject({ status: "completed", model: "synthetic/other-free-model" });
+    });
   });
 
   it("accepts an injected free model after re-validation", async () => {
