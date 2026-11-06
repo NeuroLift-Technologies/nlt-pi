@@ -175,16 +175,28 @@
 
 
 ### NLTPI-MEM-001 — Mem0 memory layer (phase 1)
-**Status:** built; awaiting owner probe and `NLT_MEMORY_ENABLED` decision
+**Status:** built; merged into `feat/mvp-mem0-memory-layer` branch with phase 2
 **Owner:** Joshua W. Dorsey, Sr. / delegated coding agents
 **Summary:** Implements owner-approved learned memories in Mem0, recalled by the agent behind ASFDK checks. Routes: `GET/POST/DELETE /api/memories`, off unless `NLT_MEMORY_ENABLED=1`, 401 without owner session, `Cache-Control: no-store`. Every write passes `validateInputLength`, `sanitizeInput`, `detectInjectionPatterns` from `@neurolift-technologies/asfdk` (fail closed). Recall runs after the crisis gate: search Mem0, filter hits through the same checks, inject as delimited untrusted background. No Mem0 client or credentials reach the model; no code reachable from `runAgentTurn` can write to Mem0. Page: "Remember this" button on user messages, Memories panel (list/delete), data notice.
-**Branch:** main (working tree)
-**Registration:** not yet created
+**Branch:** `feat/mvp-mem0-memory-layer`
+**Registration:** `docs/agent-log/registrations/2026-11-06-mem0-memory-layer.json`
 **Intent record:** `docs/agent-log/intent/2026-11-05-mem0-memory-layer.md`
 **Spec:** `docs/superpowers/specs/2026-11-05-mem0-memory-layer-design.md`
-**Verification:** mvp vitest `test/memory-route.test.ts` 23 passed; `test/agent-runner.test.ts` fails only on pre-existing missing hydrated model data (`./data/amazon-bedrock.json`); no Mem0 calls in any test. Root `npm run check` has no new errors from these files.
+**Verification:** mvp vitest `test/memory-route.test.ts` 23 passed; full mvp vitest suite 294 passed / 10 expected fail; `tsc --noEmit` clean; root `npm run check` passed via pre-commit hook.
 **Known issues / notes:** Real Mem0 behaviour not verified offline. Probe items (a)–(e) in the spec must be recorded before enabling `NLT_MEMORY_ENABLED=1` in Production.
-**Next action:** Owner confirms the ASSUMED v1 rule (memories created only by owner's "Remember this") and reviews probe results before enabling the switch.
+**Next action:** Phase 2 (TOI/OTOI standing terms) replaces `NLT_MEMORY_ENABLED` with TOI `privacy.retention` as the memory consent mechanism.
+
+### NLTPI-MEM-002 — TOI and OTOI standing terms (phase 2)
+**Status:** built; awaiting owner confirmation of pending decisions
+**Owner:** Joshua W. Dorsey, Sr. / delegated coding agents
+**Summary:** Implements TOI and OTOI as standing terms verified on every turn. New `mvp/src/toi/` module: loader (filesystem paths via `ASFDK_TOI_PATH`/`ASFDK_OTOI_PATH`), verifier (`NLT_TOI_PUBKEY` pin + `verifyToi`, `NLT_OTOI_SHA256` SHA-256 pin), retention (`privacy.retention` governs learned-memory on/off, replacing phase-1 interim consent), honorer (`honor`/`propagate` with `strict`+`audit`+agent `nlt-pi-mvp`, host-written behaviour notes from enum fields only). Runner gated: `memoryPolicy.allowed` controls Mem0 recall, `behaviourNotes` injected into prompt prefix. New `POST /api/memories/toi` route for owner to upload signed `.toi` to Mem0.
+**Branch:** `feat/mvp-mem0-memory-layer`
+**Registration:** `docs/agent-log/registrations/2026-11-06-toi-otoi-standing-terms.json`
+**Intent record:** `docs/agent-log/intent/2026-11-06-toi-otoi-standing-terms.md`
+**Spec:** `docs/superpowers/specs/2026-11-06-toi-otoi-standing-terms-design.md`
+**Verification:** mvp vitest `test/toi.test.ts` 16 passed; full suite 294 passed / 10 expected fail; `tsc --noEmit` clean.
+**Known issues / notes:** Real TOI/OTOI behaviour with owner's local files not verified end-to-end. `NLT_TOI_PUBKEY`/`NLT_OTOI_SHA256` not set in any environment. Home-directory defaults not owner-confirmed.
+**Next action:** Owner confirms pending decisions (pinning process, default paths, upload route) before enabling TOI/OTOI verification in Production.
 ## Resolved
 
 ### NLTPI-CONTRIB-001 — Remove repository-local contributor gate

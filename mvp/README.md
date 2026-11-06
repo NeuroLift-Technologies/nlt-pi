@@ -211,7 +211,17 @@ Learned memories for the signed-in owner: short, approved facts that the agent r
 - **The model never sees a store id, key or Mem0 address.** No code reachable from a model turn can create, change or delete a memory: the Mem0 client and credentials are server side only and are never passed into the turn or the sandbox.
 - **Page.** A "Remember this" button on each normal user message opens an editable text box and bucket choice; the owner's explicit act is the approval. A Memories panel lists and deletes memories. A notice says memory is on and that prompts are sent to Mem0 on every turn. All page text is written with `textContent` only.
 - **Settings (Vercel).** `NLT_MEMORY_ENABLED` (owner-set, off unless `1`); `MEM0_API_KEY`, `MEM0_ORG_ID`, `MEM0_PROJECT_ID`, `MEM0_BASE_URL` (already present, server only); `NLT_MEMORY_RECALL_LIMIT` (optional, default 5).
-- **Next phase.** The owner's signed TOI and OTOI charter move into Mem0 as standing terms (phase 2, separate spec). Not included here.
+
+## TOI and OTOI standing terms (phase 2)
+
+Standing terms for the signed-in owner: the agent's communication style, agency limits, ethical pillars, and privacy floor come from the owner's signed `.toi` and `.otoi` files, verified on every turn and enforced through the ASFDK honoring layer. Design: `docs/superpowers/specs/2026-11-06-toi-otoi-standing-terms-design.md` (this spec).
+
+- **Where they live.** Owner's local home directory (`ASFDK_TOI_PATH` / `ASFDK_OTOI_PATH`, user-level env). Never in any repo. The signed `.toi` copy can be uploaded to Mem0 through `POST /api/memories/toi`.
+- **Verification on every turn.** Before memory recall, the `.toi` signature is verified against the pinned `NLT_TOI_PUBKEY` (public key must match, then `verifyToi` must pass), and the `.otoi` checksum is verified against the pinned `NLT_OTOI_SHA256`. The effective policy is applied via `honor`/`propagate` with `strict` mode, `audit: true`, agent id `nlt-pi-mvp`.
+- **What reaches the model.** Host-written behaviour notes from a fixed template over recognized enum fields (communication, agency, ethical pillars, privacy retention). Never `identity`, `cognitive_profile`, `custom`, `$`-keys, URIs, or raw JSON. The model never sees the files or their locations.
+- **Retention governs learned memory.** The TOI's `privacy.retention` replaces the phase-1 `NLT_MEMORY_ENABLED` interim rule: `user-controlled`/`long-term`/`permanent` allow learned memories; `session-only`/`short-term` turn them off. Unverifiable TOI → privacy-first default, memory off for that turn.
+- **Invariant.** No model output can change a TOI or OTOI. Write authority is possession of the private key, held only by the owner locally. The private key never goes in an env var, repo, Vercel, or Mem0.
+- **Settings (Vercel / owner env).** `NLT_TOI_PUBKEY` (pinned public key); `NLT_OTOI_SHA256` (pinned charter checksum); `ASFDK_TOI_PATH`, `ASFDK_OTOI_PATH` (owner-local file paths).
 
 ## Current deployment posture
 
