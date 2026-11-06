@@ -355,10 +355,12 @@ export function createSandboxToolOperations(
     },
   };
 
-  /** Confines a discovery tool's path to the workspace root and reviews it, so a search never leaves the root. */
-  async function authorizeDiscovery(toolName: string, path: string): Promise<void> {
+  /** Confines a discovery tool's path to the workspace root and reviews it,
+   * returning the validated/resolved path that callers must use for I/O. */
+  async function authorizeDiscovery(toolName: string, path: string): Promise<string> {
     const paths = await confineReal(path);
     authorizePath(toolName, paths);
+    return paths.real;
   }
 
   async function isDirectory(path: string): Promise<boolean> {
@@ -378,8 +380,8 @@ export function createSandboxToolOperations(
       });
       sandbox
         .runCommand({
-          cmd: "bash",
-          args: ["-c", `ls -1 -- "${path}"`],
+          cmd: "ls",
+          args: ["-1", "--", path],
           cwd: path,
           stdout: sink,
           stderr: sink,
@@ -398,37 +400,37 @@ export function createSandboxToolOperations(
 
   const ls: LsOperations = {
     async exists(path) {
-      await authorizeDiscovery("ls", path);
+      const real = await authorizeDiscovery("ls", path);
       try {
-        await sandbox.fs.access(path);
+        await sandbox.fs.access(real);
         return true;
       } catch {
         return false;
       }
     },
     async stat(path) {
-      await authorizeDiscovery("ls", path);
-      const directory = await isDirectory(path);
+      const real = await authorizeDiscovery("ls", path);
+      const directory = await isDirectory(real);
       return { isDirectory: () => directory };
     },
     async readdir(path) {
-      await authorizeDiscovery("ls", path);
-      return listDirectory(path);
+      const real = await authorizeDiscovery("ls", path);
+      return listDirectory(real);
     },
   };
 
   const find: FindOperations = {
     async exists(path) {
-      await authorizeDiscovery("find", path);
+      const real = await authorizeDiscovery("find", path);
       try {
-        await sandbox.fs.access(path);
+        await sandbox.fs.access(real);
         return true;
       } catch {
         return false;
       }
     },
     async glob(pattern, cwd, { ignore, limit }) {
-      await authorizeDiscovery("find", cwd);
+      const realCwd = await authorizeDiscovery("find", cwd);
       const matcher = globToRegExp(pattern);
       const ignored = ignore.map(globToRegExp);
       const results: string[] = [];
@@ -439,9 +441,11 @@ export function createSandboxToolOperations(
           const child = dir === "/" ? `/${entry}` : `${dir}/${entry}`;
           // Re-confine each discovered path so `..` entries cannot escape the workspace root.
           const confined = confine(child);
-          const relativePath = cwd === "/" ? confined.slice(1) : confined.slice(cwd.length + 1);
+          const relativePath = realCwd === "/" ? confined.slice(1) : confined.slice(realCwd.length + 1);
           if (ignored.some((re) => re.test(relativePath))) continue;
-          if (matcher.test(confined)) {
+          // Match globs against paths relative to the search directory (Pi semantics),
+          // while storing absolute paths in results.
+          if (matcher.test(relativePath)) {
             results.push(confined);
             if (results.length >= limit) return;
           }
@@ -450,7 +454,7 @@ export function createSandboxToolOperations(
           }
         }
       };
-      await walk(cwd, 0);
+      await walk(realCwd, 0);
       return results;
     },
   };

@@ -89,6 +89,20 @@ class FakeSandbox implements SandboxLike {
         return { exitCode: 0 };
       }
     }
+    if (params.cmd === "ls") {
+      const args = params.args ?? [];
+      if (args[0] === "-1" && args[1] === "--") {
+        this.commands.push(params);
+        const dir = args[2];
+        const names = new Set<string>();
+        for (const key of [...this.dirs, ...this.files.keys()]) {
+          const parent = key.slice(0, key.lastIndexOf("/"));
+          if (parent === dir) names.add(key.slice(dir.length + 1));
+        }
+        if (names.size > 0) params.stdout?.write(Buffer.from([...names].sort().join("\n") + "\n"));
+        return { exitCode: 0 };
+      }
+    }
     this.commands.push(params);
     if (this.script.fail) throw this.script.fail;
     if (this.script.stdout) params.stdout?.write(Buffer.from(this.script.stdout));
@@ -340,7 +354,7 @@ describe("discovery tools (ls and find)", () => {
     sandbox.dirs.add("/ws/docs");
     sandbox.files.set("/ws/README.md", Buffer.from("hello"));
     await expect(ops.ls.readdir("/ws")).resolves.toEqual(["README.md", "a.txt", "docs", "src"]);
-    expect(sandbox.commands.map((command) => command.cmd)).toEqual(["bash"]);
+    expect(sandbox.commands.map((command) => command.cmd)).toEqual(["ls"]);
   });
 
   it("reports that a file is not a directory, and that a missing path does not exist", async () => {
@@ -363,6 +377,56 @@ describe("discovery tools (ls and find)", () => {
       "/ws/src/a.ts",
     ]);
     await expect(ops.find.glob("**/*.js", "/ws", { ignore: ["**/node_modules/**"], limit: 10 })).resolves.toEqual([]);
+  });
+
+  it("refuses to list or search outside the workspace", async () => {
+    const { sandbox, ops } = setup();
+    sandbox.files.set("/etc/hosts", Buffer.from("root"));
+    await expect(ops.ls.readdir("/etc")).rejects.toBeInstanceOf(SandboxPolicyError);
+    await expect(ops.find.glob("**/*", "/etc", { ignore: [], limit: 10 })).rejects.toBeInstanceOf(SandboxPolicyError);
+    expect(sandbox.commands).toEqual([]);
+  });
+
+  it("does not execute shell command substitution in directory names", async () => {
+    const { sandbox, ops } = setup();
+    sandbox.dirs.add("/ws/$(rm -rf /)");
+    sandbox.files.set("/ws/$(rm -rf /)/secret.txt", Buffer.from("top secret"));
+    await ops.ls.readdir("/ws/$(rm -rf /)");
+    // No bash command should ever be run for directory listing.
+    expect(sandbox.commands.filter((command) => command.cmd === "bash")).toEqual([]);
+    expect(sandbox.commands.filter((command) => command.cmd === "ls")).toHaveLength(1);
+  });
+
+  it("matches glob patterns against paths relative to the search directory", async () => {
+    const { sandbox, ops } = setup();
+    sandbox.dirs.add("/ws/src");
+    sandbox.dirs.add("/ws/lib");
+    sandbox.files.set("/ws/app.ts", Buffer.from("export {}"));
+    sandbox.files.set("/ws/src/utils.ts", Buffer.from("export {}"));
+    sandbox.files.set("/ws/lib/helper.js", Buffer.from("export {}"));
+    sandbox.files.set("/ws/data.json", Buffer.from("{}"));
+
+    // *.ts matches basenames directly in the search dir
+    await expect(ops.find.glob("*.ts", "/ws", { ignore: [], limit: 10 })).resolves.toEqual([
+      "/ws/app.ts",
+    ]);
+    // src/*.ts matches files directly under src/
+    await expect(ops.find.glob("src/*.ts", "/ws", { ignore: [], limit: 10 })).resolves.toEqual([
+      "/ws/src/utils.ts",
+    ]);
+    // **/*.json matches any .json file at any depth
+    await expect(ops.find.glob("**/*.json", "/ws", { ignore: [], limit: 10 })).resolves.toEqual([
+      "/ws/data.json",
+    ]);
+  });
+
+  it("refuses symlink targets outside the workspace", async () => {
+    const { sandbox, ops } = setup();
+    sandbox.files.set("/etc/passwd", Buffer.from("root:x:0:0:root:/root:/bin/bash"));
+    sandbox.links.set("/ws/secret-link", "/etc/passwd");
+    await expect(ops.ls.readdir("/ws/secret-link")).rejects.toBeInstanceOf(SandboxPolicyError);
+    await expect(ops.ls.exists("/ws/secret-link")).rejects.toBeInstanceOf(SandboxPolicyError);
+    await expect(ops.ls.stat("/ws/secret-link")).rejects.toBeInstanceOf(SandboxPolicyError);
   });
 
   it("refuses to list or search outside the workspace", async () => {

@@ -254,7 +254,7 @@ describe("runAgentTurn", () => {
     const result = await runAgentTurn(deps, { prompt: "explore", onToolStart: (name) => tools.push(name) });
     expect(result).toMatchObject({ status: "completed", text: "done" });
     expect(tools).toEqual(["ls", "find"]);
-    expect(client.sandbox.commands.some((command) => command.cmd === "bash")).toBe(true);
+    expect(client.sandbox.commands.some((command) => command.cmd === "ls")).toBe(true);
   });
 
   it("refuses an ls tool call that points outside the workspace without running it", async () => {
@@ -265,7 +265,7 @@ describe("runAgentTurn", () => {
     ]);
     const result = await runAgentTurn(deps, { prompt: "bad ideas" });
     expect(result).toMatchObject({ status: "completed", text: "could not do that" });
-    expect(client.sandbox.commands.filter((command) => command.cmd === "bash")).toEqual([]);
+    expect(client.sandbox.commands.filter((command) => command.cmd === "ls")).toEqual([]);
   });
 
   it("stops and releases the lock when the caller aborts before the turn starts", async () => {
