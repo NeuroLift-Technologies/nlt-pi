@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-06
 **Owner:** Joshua W. Dorsey, Sr.
-**Status:** draft for owner review. The design was approved in chat on 2026-11-06; this written spec has not been reviewed. No code is written and none starts until the owner approves this spec and a plan.
+**Status:** spec approved by the owner on 2026-11-06 (including section 3a). `apply_proposal` as a System 2 tool confirmed. Version-one reflex names, caps and the charter agent ids: owner will confirm later (the plan keeps them as single constants). A separate handoff record for the plan stage is not wanted; it goes in the overall session handoff. The implementation plan is `docs/superpowers/plans/2026-11-06-multi-agent-system1-system2.md`; no code until the owner reviews it and picks an execution method.
 **Scope:** `mvp/` (NLT Coding Agent MVP on Vercel, project `nlt-pi-mvp`)
 
 ## 1. Intent
