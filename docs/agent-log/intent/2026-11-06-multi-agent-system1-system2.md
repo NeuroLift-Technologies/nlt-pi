@@ -14,7 +14,7 @@ The intent that a later implementation (phase 1) would carry out, recorded here 
 2. A reflex interface with typed input and output schemas, confidence and escalation, an owner-set allow-list, per-turn and per-call caps, and a server-built untrusted-data result block.
 3. Version-one reflexes: `scout` (existing read-only sandbox operations, no model), `coder` (the one working hosted free model) and `reviewer` (deterministic checks first, then that model).
 4. A switch `NLT_SUBAGENTS=1`, off by default.
-5. OTOI for every reflex (added at the owner's request after the first draft): each reflex is an agent in the owner's `.otoi` charter mesh and is honored through the existing `honor`/`propagate` (`strict`) layer on every delegation. An undeclared or refused reflex is not run. Adding a reflex to the charter is an owner action (re-sign, new pinned checksum).
+5. OTOI for every reflex (added at the owner's request after the first draft). OTOI governs interaction terms; the reflex registry and the harness policy remain the only capability authority. Each reflex is an agent in the owner's `.otoi` charter; `honorer.ts` is split so verification and honoring happen once and `propagateTo(policy, agentId)` serves each agent; a delegation is refused unless the charter verifies, declares the reflex and is in `strict` mode. The server keeps its own audit line.
 
 ## Rationale
 The owner asked for an orchestration setup in which one model (System 2) selects specialists (System 1) whose output is machine-readable, and approved the design in chat on 2026-11-06 (reflex kinds beyond chat models, roles `scout`, `coder`, `reviewer`, caps of 3 delegations and 60 seconds, 0.5 escalation threshold, fast path deferred). A written spec is the architectural path's required artifact before any plan or code.
@@ -36,7 +36,7 @@ The owner asked for an orchestration setup in which one model (System 2) selects
 - **Zero-shot encoder routers as a safety gate:** rejected; the crisis gate is unchanged and encoders are only hints.
 
 ## Human approval / escalation
-Required. The owner must review and approve the written spec, then review a written implementation plan and choose its execution method, before any code. Every later phase needs a new intent record and approval, and any new dependency, egress host, model download or environment variable needs explicit approval. Stop and escalate if the Pi SDK cannot support the custom tools as the spec assumes.
+Required. The owner approved the written spec on 2026-11-06 and confirmed `apply_proposal`; a same-day review then changed sections 3, 3a, 4 and 8, which the owner should re-confirm. The owner must still review a written implementation plan and choose its execution method before any code. No separate handoff for the plan stage; it goes in the overall session handoff. Every later phase needs a new intent record and approval, and any new dependency, egress host, model download or environment variable needs explicit approval. Stop and escalate if the Pi SDK cannot support the custom tools as the spec assumes.
 
 ## Outcome
 Spec and this record written on branch `docs/multi-agent-system1-system2-design` and opened as a draft PR for the owner's review. Nothing is deployed from this change.
