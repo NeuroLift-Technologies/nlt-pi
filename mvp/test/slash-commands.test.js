@@ -126,3 +126,28 @@ test("the export is the conversation as shown, without page notices", () => {
   assert.equal(text.includes("Hello. This is"), false);
   assert.ok(text.endsWith("\n"));
 });
+
+test("the export keeps a multi-line title in one heading", () => {
+  const text = conversationToMarkdown({ title: "Topic\n## Other\n  more", startedAt: new Date("2026-11-06T20:00:00Z"), messages: [] });
+  assert.equal(text.split("\n").filter((line) => line.startsWith("#")).length, 1);
+  assert.match(text, /^# Topic ## Other more\n/);
+  assert.match(conversationToMarkdown({ title: "   ", startedAt: new Date("2026-11-06T20:00:00Z"), messages: [] }), /^# Session\n/);
+});
+
+test("the export labels blocked and unavailable replies instead of presenting them as model output", () => {
+  const at = new Date("2026-11-06T20:01:00Z");
+  const text = conversationToMarkdown({
+    title: "t",
+    startedAt: at,
+    messages: [
+      { role: "assistant", kind: "allowed", text: "partial answer", at },
+      { role: "assistant", kind: "unavailable", text: "partial answer\n\nThe agent could not finish this turn.", at },
+      { role: "assistant", kind: "blocked", text: "This message was blocked.", at },
+    ],
+  });
+  assert.match(text, /## Assistant \(2026/);
+  assert.match(text, /## Assistant \[unavailable\] \(2026/);
+  assert.match(text, /## Assistant \[blocked\] \(2026/);
+  // Partial model text is kept.
+  assert.ok(text.includes("partial answer\n\nThe agent could not finish this turn."));
+});

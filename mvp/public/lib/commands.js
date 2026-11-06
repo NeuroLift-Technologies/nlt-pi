@@ -144,10 +144,14 @@ export function resolveModel(arg, models) {
  * @param {{ title: string, startedAt: Date, messages: { role: string, text: string, kind?: string, at: Date }[] }} conversation
  */
 export function conversationToMarkdown(conversation) {
-  const lines = [`# ${conversation.title}`, "", `Started ${new Date(conversation.startedAt).toISOString()}`, ""];
+  // One line only: a title with line breaks must not start a second heading in the file.
+  const title = String(conversation.title ?? "").replace(/\s+/g, " ").trim() || "Session";
+  const lines = [`# ${title}`, "", `Started ${new Date(conversation.startedAt).toISOString()}`, ""];
   for (const message of conversation.messages) {
     if (message.kind === "info") continue;
-    const who = message.role === "user" ? "You" : "Assistant";
+    // A blocked or unavailable reply is a page notice, possibly after partial model text: say so in the heading.
+    const status = ["blocked", "unavailable", "not-deployed", "invalid"].includes(message.kind) ? ` [${message.kind}]` : "";
+    const who = message.role === "user" ? "You" : `Assistant${status}`;
     lines.push(`## ${who} (${new Date(message.at).toISOString()})`, "", message.text, "");
   }
   return `${lines.join("\n").trimEnd()}\n`;

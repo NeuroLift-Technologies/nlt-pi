@@ -744,6 +744,7 @@ els.prompt.addEventListener("keydown", (event) => {
   if (!els.picker.hidden) {
     if (event.key === "Escape") {
       els.picker.hidden = true;
+      els.prompt.setAttribute("aria-expanded", "false");
       return;
     }
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
