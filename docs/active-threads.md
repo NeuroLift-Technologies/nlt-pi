@@ -184,16 +184,16 @@
 
 
 ### NLTPI-MEM-001 — Mem0 memory layer (phase 1)
-**Status:** built; merged into `feat/mvp-mem0-memory-layer` branch with phase 2
-**Owner:** Joshua W. Dorsey, Sr. / delegated coding agents
-**Summary:** Implements owner-approved learned memories in Mem0, recalled by the agent behind ASFDK checks. Routes: `GET/POST/DELETE /api/memories`, off unless `NLT_MEMORY_ENABLED=1`, 401 without owner session, `Cache-Control: no-store`. Every write passes `validateInputLength`, `sanitizeInput`, `detectInjectionPatterns` from `@neurolift-technologies/asfdk` (fail closed). Recall runs after the crisis gate: search Mem0, filter hits through the same checks, inject as delimited untrusted background. No Mem0 client or credentials reach the model; no code reachable from `runAgentTurn` can write to Mem0. Page: "Remember this" button on user messages, Memories panel (list/delete), data notice.
-**Branch:** `feat/mvp-mem0-memory-layer`
-**Registration:** `docs/agent-log/registrations/2026-11-06-mem0-memory-layer.json`
-**Intent record:** `docs/agent-log/intent/2026-11-05-mem0-memory-layer.md`
-**Spec:** `docs/superpowers/specs/2026-11-05-mem0-memory-layer-design.md`
-**Verification:** mvp vitest `test/memory-route.test.ts` 23 passed; full mvp vitest suite 300 passed / 10 expected fail; `tsc --noEmit` clean; root `npm run check` passed via pre-commit hook. CodeRabbit review findings addressed: owner-scoped delete (client `get` + ownership check before `DELETE`), `infer: false` verbatim payload, recall wired in `api/agent.ts` with `NLT_MEMORY_RECALL_LIMIT` and `recallChecks` filtering on hits.
-**Known issues / notes:** Real Mem0 behaviour not verified offline. Probe results recorded in `docs/superpowers/specs/2026-11-06-mem0-probe-results.md` (all 5 items pending owner verification against live Mem0). Do not enable `NLT_MEMORY_ENABLED=1` in Production until probe results (a) and (e) are reviewed.
-**Next action:** Owner reviews probe results (a)–(e) and confirms enablement decision before setting `NLT_MEMORY_ENABLED=1` in Production. Phase 2 (TOI/OTOI standing terms) replaces `NLT_MEMORY_ENABLED` with TOI `privacy.retention` as the memory consent mechanism.
+**Status:** built; merged into `feat/mvp-mem0-memory-layer` branch with phase 2. **`NLT_MEMORY_ENABLED` kept disabled (owner decision, 2026-11-06)** pending probe results.  
+**Owner:** Joshua W. Dorsey, Sr. / delegated coding agents  
+**Summary:** Implements owner-approved learned memories in Mem0, recalled by the agent behind ASFDK checks. Routes: `GET/POST/DELETE /api/memories`, off unless `NLT_MEMORY_ENABLED=1`, 401 without owner session, `Cache-Control: no-store`. Every write passes `validateInputLength`, `sanitizeInput`, `detectInjectionPatterns` from `@neurolift-technologies/asfdk` (fail closed). Recall runs after the crisis gate: search Mem0, filter hits through the same checks, inject as delimited untrusted background. No Mem0 client or credentials reach the model; no code reachable from `runAgentTurn` can write to Mem0. Page: "Remember this" button on user messages, Memories panel (list/delete), data notice.  
+**Branch:** `feat/mvp-mem0-memory-layer`  
+**Registration:** `docs/agent-log/registrations/2026-11-06-mem0-memory-layer.json`  
+**Intent record:** `docs/agent-log/intent/2026-11-05-mem0-memory-layer.md`  
+**Spec:** `docs/superpowers/specs/2026-11-05-mem0-memory-layer-design.md`  
+**Verification:** mvp vitest `test/memory-route.test.ts` 23 passed; full mvp vitest suite 300 passed / 10 expected fail; `tsc --noEmit` clean; root `npm run check` passed via pre-commit hook. CodeRabbit review findings addressed: owner-scoped delete (client `get` + ownership check before `DELETE`), `infer: false` verbatim payload, recall wired in `api/agent.ts` with `NLT_MEMORY_RECALL_LIMIT` and `recallChecks` filtering on hits.  
+**Known issues / notes:** Real Mem0 behaviour not verified offline. Probe results recorded in `docs/superpowers/specs/2026-11-06-mem0-probe-results.md` (all 5 items pending owner verification against live Mem0). Owner decision (2026-11-06): keep `NLT_MEMORY_ENABLED` disabled for now. Do not enable in Production until probe results (a) and (e) are reviewed.  
+**Next action:** Owner reviews probe results (a)–(e) and decides when to enable. Phase 2 (TOI/OTOI standing terms) replaces `NLT_MEMORY_ENABLED` with TOI `privacy.retention` as the memory consent mechanism.
 
 ### NLTPI-MEM-002 — TOI and OTOI standing terms (phase 2)
 **Status:** built; awaiting owner confirmation of pending decisions
