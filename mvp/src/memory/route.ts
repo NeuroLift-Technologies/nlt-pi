@@ -52,7 +52,7 @@ const firstQuery = (value: string | string[] | undefined): string | undefined =>
   Array.isArray(value) ? value[0] : value;
 
 /** Deterministic write checks from @neurolift-technologies/asfdk. Returns an error message or undefined. */
-function writeChecks(text: string): string | undefined {
+export function writeChecks(text: string): string | undefined {
   if (!validateInputLength(text)) return "Text is too long";
   const sanitized = sanitizeInput(text);
   if (!sanitized.clean) return sanitized.reason ?? "Text failed sanitization";

@@ -6,7 +6,7 @@
  * This file is not exercised by the offline tests.
  */
 import { sessionFromCookie } from "../src/auth/owner.ts";
-import { type MemoryRequest, handleMemoryRequest } from "../src/memory/route.ts";
+import { type MemoryRequest, handleMemoryRequest, memoryEnabled, writeChecks } from "../src/memory/route.ts";
 import { type MemoryStore, createMem0Store } from "../src/memory/store.ts";
 import { createMemoryClient, type MemoryClientEnv } from "../src/memory/client.ts";
 import type { AgentResponse } from "../src/agent/route.ts";
@@ -57,13 +57,18 @@ async function handleToiUpload(
   request: MemoryRequest,
   response: AgentResponse,
   owner: string,
-  env: MemoryClientEnv & { NLT_TOI_PUBKEY?: string },
+  env: MemoryClientEnv & { NLT_TOI_PUBKEY?: string; NLT_MEMORY_ENABLED?: string },
 ): Promise<boolean> {
   if (request.method !== "POST") return false;
   const url = (request as MemoryRequest & { url?: string }).url ?? "";
   if (!url.endsWith("/toi")) return false;
 
   response.setHeader("Cache-Control", "no-store");
+
+  if (!memoryEnabled(env)) {
+    response.status(404).json({ error: "Not found" });
+    return true;
+  }
 
   const pubkey = env.NLT_TOI_PUBKEY;
   if (!pubkey) {
@@ -105,11 +110,19 @@ async function handleToiUpload(
     return true;
   }
 
+  const toiText = JSON.stringify(doc);
+  const checkError = writeChecks(toiText);
+  if (checkError) {
+    response.status(400).json({ error: checkError });
+    return true;
+  }
+
   const client = memoryClient(env);
   const id = await client.create(owner, {
-    text: JSON.stringify(doc),
+    text: toiText,
     bucket: "owner",
     sourceMessageId: undefined,
+    metadata: { kind: "toi", source: "owner-upload" },
   });
   if (!id) {
     response.status(503).json({ error: "Memory unavailable" });

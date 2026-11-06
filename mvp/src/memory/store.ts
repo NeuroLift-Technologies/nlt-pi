@@ -73,7 +73,7 @@ export function fakeMemoryStore() {
 export function createMem0Store(client: ReturnType<typeof import("./client.ts").createMemoryClient>): MemoryStore {
   return {
     async list(owner) {
-      return client.list(owner);
+      return (await client.list(owner)).filter((m) => m.kind !== "toi");
     },
     async save(owner, input) {
       const id = await client.create(owner, input);
@@ -86,7 +86,7 @@ export function createMem0Store(client: ReturnType<typeof import("./client.ts").
       return client.get(owner, id);
     },
     async search(owner, query, limit) {
-      return client.search(owner, query, limit);
+      return (await client.search(owner, query, limit)).filter((m) => m.kind !== "toi");
     },
   };
 }

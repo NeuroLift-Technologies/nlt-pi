@@ -29,6 +29,8 @@ export interface Memory {
   bucket: MemoryBucket;
   createdAt: string;
   sourceMessageId?: string;
+  /** Optional metadata kind (e.g. "toi" for TOI uploads). TOI uploads are excluded from normal listing/recall. */
+  kind?: string;
 }
 
 export interface MemoryClientEnv {
@@ -44,6 +46,8 @@ export interface MemoryClient {
     text: string;
     bucket: MemoryBucket;
     sourceMessageId?: string;
+    /** Optional metadata override. Callers must include bucket/repo/source_message_id if needed. */
+    metadata?: Record<string, unknown>;
   }): Promise<string | undefined>;
   /** List the owner's memories for this agent. */
   list(owner: string): Promise<Memory[]>;
@@ -81,7 +85,8 @@ function toMemory(item: Record<string, unknown>): Memory | undefined {
   const bucket = metadata.bucket === "owner" || metadata.bucket === "project" ? (metadata.bucket as MemoryBucket) : "owner";
   const createdAt = typeof item.created_at === "string" ? item.created_at : typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString();
   const sourceMessageId = typeof metadata.source_message_id === "string" ? metadata.source_message_id : undefined;
-  return { id, text, bucket, createdAt, sourceMessageId };
+  const kind = typeof metadata.kind === "string" ? metadata.kind : undefined;
+  return { id, text, bucket, createdAt, sourceMessageId, kind };
 }
 
 function toArray(value: unknown): Record<string, unknown>[] {
@@ -138,6 +143,7 @@ export function createMemoryClient(env: MemoryClientEnv): MemoryClient {
             repo: REPO,
             source_message_id: input.sourceMessageId ?? null,
             created_at: new Date().toISOString(),
+            ...(input.metadata ?? {}),
           },
         };
         const result = await request("/v1/memories/", {
