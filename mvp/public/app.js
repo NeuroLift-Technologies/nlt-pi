@@ -12,6 +12,7 @@ import {
   resultLabel,
   validatePrompt,
 } from "./lib/decision.js";
+import { helpText, parseSlash, resolveModel, suggestCommands } from "./lib/commands.js";
 import { renderMarkdown } from "./lib/markdown.js";
 import { BLOCKED_PLACEHOLDER, HISTORY_NOTICE, createSaver, interpretConversation, interpretHistoryList, shortTitle } from "./lib/history.js";
 
@@ -33,6 +34,7 @@ const els = {
   log: $("log"),
   form: $("composer"),
   prompt: $("prompt"),
+  picker: $("command-picker"),
   send: $("send"),
   counter: $("counter"),
   chips: document.querySelectorAll(".chip"),
@@ -351,8 +353,92 @@ function setPending(value) {
   els.currentTask.textContent = value ? "Governance check" : "Idle";
 }
 
+/** Shows a page-only notice. It is not stored in the conversation, not saved, and never sent anywhere. */
+function localNotice(text) {
+  appendMessage({ role: "assistant", kind: "info", text, at: new Date() });
+}
+
+function currentModelLabel() {
+  const option = els.modelSelect.selectedOptions[0];
+  return option ? option.textContent : "Auto (best free)";
+}
+
+/** Runs a page command ("/help", "/new", "/model", "/status"). Browser-only: no request is made and nothing is saved. */
+function runSlash(parsed) {
+  els.prompt.value = "";
+  autosize();
+  if (parsed.kind === "partial") {
+    localNotice(`Unknown command. Did you mean ${parsed.matches.map((command) => command.usage.split(" ")[0]).join(" or ")}? To send this as a message, start it with //.`);
+    return;
+  }
+  if (parsed.name === "help") {
+    localNotice(helpText());
+  } else if (parsed.name === "new") {
+    if (pending) localNotice("Wait for the current turn to finish before starting a new conversation.");
+    else newConversation();
+  } else if (parsed.name === "model") {
+    if (parsed.args === "") {
+      const names = loadedModels.map((model) => model.label).join(", ");
+      localNotice(`Model: ${currentModelLabel()}. ${names ? `Free models listed: ${names}.` : "No model list is available, so the choice is automatic."} Use /model auto or /model <name>.`);
+    } else if (els.modelSelect.disabled) {
+      localNotice("The model list is not available right now, so the choice stays automatic.");
+    } else {
+      const choice = resolveModel(parsed.args, loadedModels);
+      if (choice.ok) {
+        els.modelSelect.value = choice.id;
+        localNotice(`Model set to ${currentModelLabel()} for the next turns (this tab only).`);
+      } else if (choice.reason === "ambiguous") {
+        localNotice(`More than one model matches: ${choice.matches.join(", ")}. Type more of the name.`);
+      } else {
+        localNotice(`No listed free model matches "${parsed.args}". Use /model to see the list.`);
+      }
+    }
+  } else if (parsed.name === "status") {
+    localNotice(
+      [
+        `Sign-in: ${els.accountLabel.textContent}`,
+        `ASFDK governance: ${els.govVerification.textContent}`,
+        `Agent execution: ${els.govExecution.textContent}`,
+        `Model: ${currentModelLabel()}`,
+        `Saved history: ${historyOn ? "on" : "off"}. Memory: ${memoryOn ? "on" : "off"}.`,
+        `Current task: ${els.currentTask.textContent}`,
+      ].join("\n"),
+    );
+  }
+}
+
+/** Shows the command picker while the first word after a leading "/" is being typed. */
+function renderPicker() {
+  const matches = suggestCommands(els.prompt.value);
+  els.picker.hidden = matches.length === 0;
+  els.picker.replaceChildren(
+    ...matches.map((command) => {
+      const button = el("button", "command-option");
+      button.type = "button";
+      button.append(el("strong", "", command.usage), el("span", "", command.summary));
+      button.addEventListener("click", () => {
+        if (command.usage.includes("[")) {
+          els.prompt.value = `/${command.name} `;
+          autosize();
+          els.prompt.focus();
+        } else {
+          runSlash({ kind: "command", name: command.name, args: "" });
+        }
+      });
+      return button;
+    }),
+  );
+}
+
 /** Handles a submitted prompt: validates it, tries the agent route, falls back to the governance check. */
 async function submit(raw) {
+  // Page commands are handled here in the browser and never reach the gate, the agent or a model.
+  const slash = parseSlash(raw);
+  if (slash.kind === "command" || slash.kind === "partial") {
+    runSlash(slash);
+    return;
+  }
+  if (slash.kind === "escaped") raw = slash.text;
   if (pending) return;
   const checked = validatePrompt(raw);
   if (!checked.ok) return;
@@ -593,6 +679,7 @@ function autosize() {
   els.prompt.style.height = "auto";
   els.prompt.style.height = `${Math.min(els.prompt.scrollHeight, 160)}px`;
   els.counter.textContent = `${els.prompt.value.length} / ${MAX_PROMPT_LENGTH}`;
+  renderPicker();
 }
 
 els.form.addEventListener("submit", (event) => {
@@ -601,6 +688,10 @@ els.form.addEventListener("submit", (event) => {
 });
 els.prompt.addEventListener("input", autosize);
 els.prompt.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !els.picker.hidden) {
+    els.picker.hidden = true;
+    return;
+  }
   // keyCode 229 is how some browsers (Safari) report the Enter that confirms IME text, after isComposing is false.
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
     event.preventDefault();

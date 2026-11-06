@@ -222,6 +222,38 @@ button, textarea { font: inherit; color: inherit; }
   border-radius: 14px;
   background: rgb(10 22 50 / 90%);
 }
+.command-picker {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  border: 1px solid #2c5bb8;
+  border-radius: 12px;
+  background: rgb(8 18 44 / 98%);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+  z-index: 5;
+}
+.command-picker[hidden] { display: none; }
+.command-option {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  align-items: baseline;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.command-option:hover, .command-option:focus-visible { background: rgb(36 120 255 / 18%); outline: none; }
+.command-option strong { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9rem; }
+.command-option span { color: var(--muted); font-size: 0.82rem; }
 .composer textarea {
   flex: 1;
   min-height: 28px;
