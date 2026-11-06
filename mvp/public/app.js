@@ -12,7 +12,7 @@ import {
   resultLabel,
   validatePrompt,
 } from "./lib/decision.js";
-import { helpText, parseSlash, resolveModel, suggestCommands } from "./lib/commands.js";
+import { completion, conversationToMarkdown, enterAction, parseSlash, resolveModel, suggestCommands, unquote } from "./lib/commands.js";
 import { renderMarkdown } from "./lib/markdown.js";
 import { BLOCKED_PLACEHOLDER, HISTORY_NOTICE, createSaver, interpretConversation, interpretHistoryList, shortTitle } from "./lib/history.js";
 
@@ -363,18 +363,16 @@ function currentModelLabel() {
   return option ? option.textContent : "Auto (best free)";
 }
 
-/** Runs a page command ("/help", "/new", "/model", "/status"). Browser-only: no request is made and nothing is saved. */
-function runSlash(parsed) {
+/** Runs a page command. Browser-only: no request is made to the gate, the agent or a model, and nothing is saved. */
+async function runSlash(parsed) {
   els.prompt.value = "";
   autosize();
   if (parsed.kind === "partial") {
-    localNotice(`Unknown command. Did you mean ${parsed.matches.map((command) => command.usage.split(" ")[0]).join(" or ")}? To send this as a message, start it with //.`);
+    localNotice(`Unknown command. Did you mean ${parsed.matches.map((command) => `/${command.name}`).join(" or ")}? To send this as a message, start it with //.`);
     return;
   }
-  if (parsed.name === "help") {
-    localNotice(helpText());
-  } else if (parsed.name === "new") {
-    if (pending) localNotice("Wait for the current turn to finish before starting a new conversation.");
+  if (parsed.name === "new") {
+    if (pending) localNotice("Wait for the current turn to finish before starting a new session.");
     else newConversation();
   } else if (parsed.name === "model") {
     if (parsed.args === "") {
@@ -386,16 +384,30 @@ function runSlash(parsed) {
       const choice = resolveModel(parsed.args, loadedModels);
       if (choice.ok) {
         els.modelSelect.value = choice.id;
-        localNotice(`Model set to ${currentModelLabel()} for the next turns (this tab only).`);
+        localNotice(`Model set to ${currentModelLabel()} for the next messages (this tab only).`);
       } else if (choice.reason === "ambiguous") {
         localNotice(`More than one model matches: ${choice.matches.join(", ")}. Type more of the name.`);
       } else {
-        localNotice(`No listed free model matches "${parsed.args}". Use /model to see the list.`);
+        localNotice(`No listed free model matches "${unquote(parsed.args)}". Use /model to see the list.`);
       }
     }
-  } else if (parsed.name === "status") {
+  } else if (parsed.name === "name") {
+    const wanted = unquote(parsed.args);
+    if (wanted === "") {
+      localNotice(`Session name: ${active.title}`);
+    } else {
+      active.title = shortTitle(wanted, 28);
+      active.renamed = true;
+      els.title.textContent = active.title;
+      renderSessions();
+      localNotice(`Session renamed to "${active.title}".`);
+    }
+  } else if (parsed.name === "session") {
+    const sent = active.messages.filter((message) => message.role === "user").length;
     localNotice(
       [
+        `Session: ${active.title} (${active.id.slice(0, 8)}), started ${formatClock(active.startedAt)}`,
+        `Messages sent: ${sent}`,
         `Sign-in: ${els.accountLabel.textContent}`,
         `ASFDK governance: ${els.govVerification.textContent}`,
         `Agent execution: ${els.govExecution.textContent}`,
@@ -404,30 +416,70 @@ function runSlash(parsed) {
         `Current task: ${els.currentTask.textContent}`,
       ].join("\n"),
     );
+  } else if (parsed.name === "copy") {
+    const last = [...active.messages].reverse().find((message) => message.role === "assistant" && message.kind === "allowed");
+    if (!last) {
+      localNotice("There is no assistant reply to copy yet.");
+    } else {
+      try {
+        await navigator.clipboard.writeText(last.text);
+        localNotice("Copied the last assistant message.");
+      } catch {
+        localNotice("The browser did not allow copying. Select the text and copy it instead.");
+      }
+    }
+  } else if (parsed.name === "export") {
+    const blob = new Blob([conversationToMarkdown(active)], { type: "text/markdown" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${active.title.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "session"}.md`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    localNotice("Downloaded this session as Markdown. Review it before sharing: it can contain prompts, command output and file contents.");
+  } else if (parsed.name === "reload") {
+    await loadModels();
+    await loadStatus();
+    localNotice("Reloaded the model list and the status shown on this page.");
   }
 }
 
-/** Shows the command picker while the first word after a leading "/" is being typed. */
+let pickerEntries = [];
+let pickerIndex = 0;
+
+/** Picking an entry completes it in the box, like Pi's menu; Enter then runs it. */
+function completeEntry(entry) {
+  els.prompt.value = completion(entry);
+  autosize();
+  els.prompt.focus();
+}
+
+/** Shows the command menu while the first word after a leading "/" is being typed. */
 function renderPicker() {
-  const matches = suggestCommands(els.prompt.value);
-  els.picker.hidden = matches.length === 0;
+  pickerEntries = suggestCommands(els.prompt.value);
+  pickerIndex = Math.min(pickerIndex, Math.max(0, pickerEntries.length - 1));
+  els.picker.hidden = pickerEntries.length === 0;
+  els.prompt.setAttribute("aria-expanded", String(pickerEntries.length > 0));
   els.picker.replaceChildren(
-    ...matches.map((command) => {
-      const button = el("button", "command-option");
-      button.type = "button";
-      button.append(el("strong", "", command.usage), el("span", "", command.summary));
-      button.addEventListener("click", () => {
-        if (command.usage.includes("[")) {
-          els.prompt.value = `/${command.name} `;
-          autosize();
-          els.prompt.focus();
-        } else {
-          runSlash({ kind: "command", name: command.name, args: "" });
-        }
-      });
-      return button;
+    ...pickerEntries.map((entry, index) => {
+      const option = el("button", "command-option");
+      option.type = "button";
+      option.id = `command-option-${index}`;
+      option.setAttribute("role", "option");
+      option.setAttribute("aria-selected", String(index === pickerIndex));
+      const head = el("span", "command-head");
+      head.append(el("strong", "command-name", `/${entry.name}`), ...(entry.argumentHint ? [el("span", "command-hint", entry.argumentHint)] : []), el("span", "command-source", `(${entry.source})`));
+      option.append(head, el("span", "command-desc", entry.description));
+      option.addEventListener("click", () => completeEntry(entry));
+      return option;
     }),
   );
+}
+
+function movePicker(step) {
+  if (pickerEntries.length === 0) return;
+  pickerIndex = (pickerIndex + step + pickerEntries.length) % pickerEntries.length;
+  renderPicker();
+  els.picker.children[pickerIndex]?.scrollIntoView({ block: "nearest" });
 }
 
 /** Handles a submitted prompt: validates it, tries the agent route, falls back to the governance check. */
@@ -455,7 +507,8 @@ async function submit(raw) {
   const exchangeStart = conversation.messages.length;
   const userMessage = { id: crypto.randomUUID(), role: "user", text: checked.prompt, at: new Date() };
   conversation.messages.push(userMessage);
-  if (isFirst) {
+  // A name chosen with /name is kept; otherwise the first message titles the conversation.
+  if (isFirst && !conversation.renamed) {
     conversation.title = shortTitle(checked.prompt, 28);
     els.title.textContent = conversation.title;
   }
@@ -688,9 +741,26 @@ els.form.addEventListener("submit", (event) => {
 });
 els.prompt.addEventListener("input", autosize);
 els.prompt.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !els.picker.hidden) {
-    els.picker.hidden = true;
-    return;
+  if (!els.picker.hidden) {
+    if (event.key === "Escape") {
+      els.picker.hidden = true;
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      movePicker(event.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
+    if (event.key === "Tab" && !event.shiftKey) {
+      event.preventDefault();
+      completeEntry(pickerEntries[pickerIndex]);
+      return;
+    }
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229 && enterAction(els.prompt.value, pickerEntries[pickerIndex]) === "complete") {
+      event.preventDefault();
+      completeEntry(pickerEntries[pickerIndex]);
+      return;
+    }
   }
   // keyCode 229 is how some browsers (Safari) report the Enter that confirms IME text, after isComposing is false.
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
