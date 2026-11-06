@@ -108,12 +108,11 @@
 **Next action:** Owner: sign-in setup. Agent: help verify the first sign-in and the first agent turn once set up.
 
 ### NLTPI-MVP-006 — Chat history in Neon
-**Status:** merged (nlt-pi#35). Switched on in production on 2026-11-06 (`NLT_HISTORY_ENABLED=1`, redeployed, deployment READY). The Neon tables are created on the first request, which has not happened yet.  
+**Status:** merged (nlt-pi#35); live in production. Switched on 2026-11-06 (`NLT_HISTORY_ENABLED=1`, redeployed, READY).  
 **Owner:** Joshua W. Dorsey, Sr. / delegated coding agents  
 **Summary:** The owner added Neon and Mem0 to the Vercel project (2026-11-05) and chose chat history in Neon first. The owner-approved spec is `docs/superpowers/specs/2026-11-05-chat-history-neon-design.md`. Conversations are saved for the signed-in owner only and kept until deleted. Blocked messages are stored as a marker without text. The page saves through an owner-only `/api/conversations`, so `/api/agent` and `/api/govern` are unchanged. The agent still answers each message on its own. `@neondatabase/serverless` 1.2.0 is pinned.  
-**Verified:** offline tests (store SQL against a recording stub; route against an in-memory store; page helpers), mutation checks (owner filter, blocked-text clearing, session owner), and a Playwright check of the page with stubbed API routes (history off, and on: list, save, open, delete).  
-**Not verified:** a real Neon connection and schema creation.  
-**Next (owner):** open the chat page, sign in, send one message, then reload to see it listed. The agent can then confirm the rows in Neon (read-only).  
+**Verified:** offline tests (store SQL against a recording stub; route against an in-memory store; page helpers), mutation checks (owner filter, blocked-text clearing, session owner), and a Playwright check of the page with stubbed API routes (history off, and on: list, save, open, delete). **Live check (2026-11-06, owner-reported):** session history saves in production. Neon tables created on first `/api/conversations` request.  
+**Next:** agent can confirm rows in Neon (read-only) if needed.  
 **Planned next phase:** Mem0 as the agent's memory layer, with its own design. `@mem0/pi-agent-plugin` 0.3.2 has been reviewed: it fits Pi, but its auto-capture, model-callable delete and machine-based scoping need locking down before use in the hosted runner (`noExtensions: true` today).
 
 ### NLTPI-MVP-007 — Sandbox access requests (owner approves new sites)
