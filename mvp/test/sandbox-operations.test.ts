@@ -319,8 +319,8 @@ describe("harness policy applies to every call", () => {
       reason: "no",
     }));
     const { sandbox, ops } = setup({ review });
-    await rejects(ops.ls.readdir("/ws"));
-    await rejects(ops.find.glob("**/*", "/ws", { ignore: [], limit: 10 }));
+    await rejects(Promise.resolve(ops.ls.readdir("/ws")));
+    await rejects(Promise.resolve(ops.find.glob("**/*", "/ws", { ignore: [], limit: 10 })));
     expect(review.mock.calls.map(([tool]) => tool)).toEqual(["ls", "find"]);
     expect(review.mock.calls[0]?.[1]).toEqual({ path: "/ws" });
     expect(sandbox.commands).toEqual([]);

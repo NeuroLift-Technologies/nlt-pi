@@ -437,14 +437,16 @@ export function createSandboxToolOperations(
         const entries = await listDirectory(dir);
         for (const entry of entries) {
           const child = dir === "/" ? `/${entry}` : `${dir}/${entry}`;
-          const relativePath = cwd === "/" ? child.slice(1) : child.slice(cwd.length + 1);
+          // Re-confine each discovered path so `..` entries cannot escape the workspace root.
+          const confined = confine(child);
+          const relativePath = cwd === "/" ? confined.slice(1) : confined.slice(cwd.length + 1);
           if (ignored.some((re) => re.test(relativePath))) continue;
-          if (matcher.test(child)) {
-            results.push(child);
+          if (matcher.test(confined)) {
+            results.push(confined);
             if (results.length >= limit) return;
           }
-          if (depth < FIND_MAX_DEPTH && (await isDirectory(child))) {
-            await walk(child, depth + 1);
+          if (depth < FIND_MAX_DEPTH && (await isDirectory(confined))) {
+            await walk(confined, depth + 1);
           }
         }
       };
