@@ -192,8 +192,8 @@
 **Intent record:** `docs/agent-log/intent/2026-11-05-mem0-memory-layer.md`  
 **Spec:** `docs/superpowers/specs/2026-11-05-mem0-memory-layer-design.md`  
 **Verification:** mvp vitest `test/memory-route.test.ts` 23 passed; full mvp vitest suite 300 passed / 10 expected fail; `tsc --noEmit` clean; root `npm run check` passed via pre-commit hook. CodeRabbit review findings addressed: owner-scoped delete (client `get` + ownership check before `DELETE`), `infer: false` verbatim payload, recall wired in `api/agent.ts` with `NLT_MEMORY_RECALL_LIMIT` and `recallChecks` filtering on hits.  
-**Known issues / notes:** Real Mem0 behaviour not verified offline. Probe results recorded in `docs/superpowers/specs/2026-11-06-mem0-probe-results.md` (all 5 items pending owner verification against live Mem0). Owner decision (2026-11-06): keep `NLT_MEMORY_ENABLED` disabled for now. Do not enable in Production until probe results (a) and (e) are reviewed.  
-**Next action:** Owner reviews probe results (a)–(e) and decides when to enable. Phase 2 (TOI/OTOI standing terms) replaces `NLT_MEMORY_ENABLED` with TOI `privacy.retention` as the memory consent mechanism.
+**Known issues / notes:** Real Mem0 behaviour not verified offline. Probe results `docs/superpowers/specs/2026-11-06-mem0-probe-results.md`: (a)–(d) unverified; **(e) owner-reported (2026-11-06): Mem0 trains on data on the free plan** — blocker on current plan. Owner decision (2026-11-06): keep `NLT_MEMORY_ENABLED` disabled. Do not enable on the free plan.  
+**Next action:** Owner decides: compliant Mem0 plan/setting with no training + acceptable retention, a different memory provider, or defer Mem0 memory. Still verify (a) before any enablement. Phase 2 (TOI/OTOI `privacy.retention`) governs consent once a compliant storage option exists.
 
 ### NLTPI-MEM-002 — TOI and OTOI standing terms (phase 2)
 **Status:** built; awaiting owner confirmation of pending decisions
