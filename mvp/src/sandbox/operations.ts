@@ -1,7 +1,7 @@
 /**
  * Sandbox-backed tool operations for the NLT Coding Agent.
  *
- * The Pi coding-agent tools (bash, read, write, edit) take swappable "operations" objects. These
+ * The Pi coding-agent tools (bash, read, write, edit, ls, find) take swappable "operations" objects. These
  * implementations run them inside a Vercel Sandbox instead of on the machine that hosts the agent loop.
  *
  * Authority model (see AGENTS.md): the sandbox is the execution environment ("AgentOS" stand-in), not an
@@ -21,6 +21,8 @@ import { Writable } from "node:stream";
 import type {
   BashOperations,
   EditOperations,
+  FindOperations,
+  LsOperations,
   ReadOperations,
   WriteOperations,
 } from "@earendil-works/pi-coding-agent";
@@ -82,6 +84,27 @@ export interface SandboxToolOperations {
   read: ReadOperations;
   write: WriteOperations;
   edit: EditOperations;
+  ls: LsOperations;
+  find: FindOperations;
+}
+
+/** Deepest directory the `find` tool will descend, so a pathological tree cannot loop the walk. */
+const FIND_MAX_DEPTH = 64;
+
+/** Converts a pi glob pattern (`**`, `*`, `?`) to a regular expression; `**` spans directory separators. */
+function globToRegExp(pattern: string): RegExp {
+  let source = "^";
+  const segments = pattern.split("/");
+  segments.forEach((segment, index) => {
+    const last = index === segments.length - 1;
+    if (segment === "**") {
+      source += last ? ".*" : "(?:.*/)?";
+      return;
+    }
+    source += segment.replace(/[.+^${}()|\\]/g, "\\$&").replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]");
+    if (!last) source += "/";
+  });
+  return new RegExp(`${source}$`);
 }
 
 const DEFAULTS = {
@@ -332,7 +355,105 @@ export function createSandboxToolOperations(
     },
   };
 
-  return { bash, read, write, edit };
+  /** Confines a discovery tool's path to the workspace root and reviews it, so a search never leaves the root. */
+  async function authorizeDiscovery(toolName: string, path: string): Promise<void> {
+    const paths = await confineReal(path);
+    authorizePath(toolName, paths);
+  }
+
+  async function isDirectory(path: string): Promise<boolean> {
+    const result = await sandbox.runCommand({ cmd: "test", args: ["-d", path], timeoutMs: 15_000 });
+    return result.exitCode === 0;
+  }
+
+  /** Lists one directory inside the workspace through the sandbox shell, as entry names. */
+  async function listDirectory(path: string, timeoutMs = 15_000): Promise<string[]> {
+    const entries = await new Promise<string>((resolve, reject) => {
+      let out = "";
+      const sink = new Writable({
+        write(chunk: Buffer, _encoding, done) {
+          out += chunk.toString("utf8");
+          done();
+        },
+      });
+      sandbox
+        .runCommand({
+          cmd: "bash",
+          args: ["-c", `ls -1 -- "${path}"`],
+          cwd: path,
+          stdout: sink,
+          stderr: sink,
+          timeoutMs,
+        })
+        .then(
+          (result) => {
+            if (result.exitCode !== 0) reject(new Error(`Could not list the directory: ${path}`));
+            else resolve(out);
+          },
+          reject,
+        );
+    });
+    return entries.split("\n").map((entry) => entry.trim()).filter((entry) => entry.length > 0);
+  }
+
+  const ls: LsOperations = {
+    async exists(path) {
+      await authorizeDiscovery("ls", path);
+      try {
+        await sandbox.fs.access(path);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    async stat(path) {
+      await authorizeDiscovery("ls", path);
+      const directory = await isDirectory(path);
+      return { isDirectory: () => directory };
+    },
+    async readdir(path) {
+      await authorizeDiscovery("ls", path);
+      return listDirectory(path);
+    },
+  };
+
+  const find: FindOperations = {
+    async exists(path) {
+      await authorizeDiscovery("find", path);
+      try {
+        await sandbox.fs.access(path);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    async glob(pattern, cwd, { ignore, limit }) {
+      await authorizeDiscovery("find", cwd);
+      const matcher = globToRegExp(pattern);
+      const ignored = ignore.map(globToRegExp);
+      const results: string[] = [];
+      const walk = async (dir: string, depth: number): Promise<void> => {
+        if (results.length >= limit) return;
+        const entries = await listDirectory(dir);
+        for (const entry of entries) {
+          const child = dir === "/" ? `/${entry}` : `${dir}/${entry}`;
+          const relativePath = cwd === "/" ? child.slice(1) : child.slice(cwd.length + 1);
+          if (ignored.some((re) => re.test(relativePath))) continue;
+          if (matcher.test(child)) {
+            results.push(child);
+            if (results.length >= limit) return;
+          }
+          if (depth < FIND_MAX_DEPTH && (await isDirectory(child))) {
+            await walk(child, depth + 1);
+          }
+        }
+      };
+      await walk(cwd, 0);
+      return results;
+    },
+  };
+
+  return { bash, read, write, edit, ls, find };
 }
 
 /** Network policy for a new sandbox when the caller does not choose one. Outbound traffic is denied. */

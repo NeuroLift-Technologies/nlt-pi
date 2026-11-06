@@ -243,6 +243,31 @@ describe("runAgentTurn", () => {
     expect(client.sandbox.commands.filter((command) => command.cmd !== "sh" && command.cmd !== "test")).toEqual([]);
   });
 
+  it("runs the pi ls and find tools through the reviewed sandbox operations", async () => {
+    const { client, faux, deps } = setup();
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall("ls", { path: "/vercel/sandbox" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage(fauxToolCall("find", { pattern: "**/*.txt", path: "/vercel/sandbox" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage("done"),
+    ]);
+    const tools: string[] = [];
+    const result = await runAgentTurn(deps, { prompt: "explore", onToolStart: (name) => tools.push(name) });
+    expect(result).toMatchObject({ status: "completed", text: "done" });
+    expect(tools).toEqual(["ls", "find"]);
+    expect(client.sandbox.commands.some((command) => command.cmd === "bash")).toBe(true);
+  });
+
+  it("refuses an ls tool call that points outside the workspace without running it", async () => {
+    const { client, faux, deps } = setup();
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall("ls", { path: "/etc" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage("could not do that"),
+    ]);
+    const result = await runAgentTurn(deps, { prompt: "bad ideas" });
+    expect(result).toMatchObject({ status: "completed", text: "could not do that" });
+    expect(client.sandbox.commands.filter((command) => command.cmd === "bash")).toEqual([]);
+  });
+
   it("stops and releases the lock when the caller aborts before the turn starts", async () => {
     const { client, deps } = setup();
     const controller = new AbortController();

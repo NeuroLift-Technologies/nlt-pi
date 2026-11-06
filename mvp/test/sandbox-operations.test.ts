@@ -60,7 +60,12 @@ class FakeSandbox implements SandboxLike {
 
   runCommand: SandboxLike["runCommand"] = async (params) => {
     if (params.cmd === "test") {
-      return { exitCode: this.links.has(params.args?.[1] ?? "") ? 0 : 1 };
+      const flag = params.args?.[0];
+      const target = params.args?.[1] ?? "";
+      if (flag === "-d") {
+        return { exitCode: this.dirs.has(this.resolve(target)) ? 0 : 1 };
+      }
+      return { exitCode: this.links.has(target) ? 0 : 1 };
     }
     if (params.cmd === "stat") {
       // The size probe made before a read. Not recorded as an agent command.
@@ -68,6 +73,21 @@ class FakeSandbox implements SandboxLike {
       if (this.statFail || !data) return { exitCode: 1 };
       params.stdout?.write(Buffer.from(`${this.statOutput ?? data.byteLength}\n`));
       return { exitCode: 0 };
+    }
+    if (params.cmd === "bash") {
+      const script = params.args?.[1] ?? "";
+      const listed = script.match(/^ls -1 -- "(.*)"$/);
+      if (listed) {
+        this.commands.push(params);
+        const dir = listed[1];
+        const names = new Set<string>();
+        for (const key of [...this.dirs, ...this.files.keys()]) {
+          const parent = key.slice(0, key.lastIndexOf("/"));
+          if (parent === dir) names.add(key.slice(dir.length + 1));
+        }
+        if (names.size > 0) params.stdout?.write(Buffer.from([...names].sort().join("\n") + "\n"));
+        return { exitCode: 0 };
+      }
     }
     this.commands.push(params);
     if (this.script.fail) throw this.script.fail;
@@ -292,10 +312,65 @@ describe("harness policy applies to every call", () => {
     expect(sandbox.commands).toEqual([]);
   });
 
+  it("asks the reviewer for the discovery tools with the confined path, and obeys a refusal", async () => {
+    const review = vi.fn((_tool: string, _input: Record<string, unknown>) => ({
+      allow: false,
+      severity: "block" as const,
+      reason: "no",
+    }));
+    const { sandbox, ops } = setup({ review });
+    await rejects(ops.ls.readdir("/ws"));
+    await rejects(ops.find.glob("**/*", "/ws", { ignore: [], limit: 10 }));
+    expect(review.mock.calls.map(([tool]) => tool)).toEqual(["ls", "find"]);
+    expect(review.mock.calls[0]?.[1]).toEqual({ path: "/ws" });
+    expect(sandbox.commands).toEqual([]);
+  });
+
   it("treats anything other than allow:true as a refusal", async () => {
     const { sandbox, ops } = setup({ review: (() => ({ severity: "allow" })) as never });
     await rejects(ops.read.readFile("a.txt"));
     expect(sandbox.reads).toEqual([]);
+  });
+});
+
+describe("discovery tools (ls and find)", () => {
+  it("lists a directory inside the workspace through the sandbox shell", async () => {
+    const { sandbox, ops } = setup();
+    sandbox.dirs.add("/ws/src");
+    sandbox.dirs.add("/ws/docs");
+    sandbox.files.set("/ws/README.md", Buffer.from("hello"));
+    await expect(ops.ls.readdir("/ws")).resolves.toEqual(["README.md", "a.txt", "docs", "src"]);
+    expect(sandbox.commands.map((command) => command.cmd)).toEqual(["bash"]);
+  });
+
+  it("reports that a file is not a directory, and that a missing path does not exist", async () => {
+    const { ops } = setup();
+    expect((await ops.ls.stat("/ws/a.txt")).isDirectory()).toBe(false);
+    expect((await ops.ls.stat("/ws")).isDirectory()).toBe(true);
+    await expect(ops.ls.exists("/ws/missing")).resolves.toBe(false);
+    await expect(ops.find.exists("/ws/missing")).resolves.toBe(false);
+  });
+
+  it("finds files by glob inside the workspace, honouring the ignore list and the limit", async () => {
+    const { sandbox, ops } = setup();
+    sandbox.dirs.add("/ws/src");
+    sandbox.dirs.add("/ws/node_modules/pkg");
+    sandbox.files.set("/ws/b.ts", Buffer.from("export {}"));
+    sandbox.files.set("/ws/src/a.ts", Buffer.from("export {}"));
+    sandbox.files.set("/ws/node_modules/pkg/index.js", Buffer.from("export {}"));
+    await expect(ops.find.glob("**/*.ts", "/ws", { ignore: ["**/node_modules/**"], limit: 10 })).resolves.toEqual([
+      "/ws/b.ts",
+      "/ws/src/a.ts",
+    ]);
+    await expect(ops.find.glob("**/*.js", "/ws", { ignore: ["**/node_modules/**"], limit: 10 })).resolves.toEqual([]);
+  });
+
+  it("refuses to list or search outside the workspace", async () => {
+    const { sandbox, ops } = setup();
+    sandbox.files.set("/etc/hosts", Buffer.from("root"));
+    await expect(ops.ls.readdir("/etc")).rejects.toBeInstanceOf(SandboxPolicyError);
+    await expect(ops.find.glob("**/*", "/etc", { ignore: [], limit: 10 })).rejects.toBeInstanceOf(SandboxPolicyError);
+    expect(sandbox.commands).toEqual([]);
   });
 });
 
