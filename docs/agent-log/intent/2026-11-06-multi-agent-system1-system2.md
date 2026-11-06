@@ -12,7 +12,7 @@ The intent that a later implementation (phase 1) would carry out, recorded here 
 
 1. A `delegate(reflex, input)` custom tool and an `apply_proposal(id)` custom tool in the governed turn, registered next to the existing tools in `mvp/src/agent/runner.ts`.
 2. A reflex interface with typed input and output schemas, confidence and escalation, an owner-set allow-list, per-turn and per-call caps, and a server-built untrusted-data result block.
-3. Version-one reflexes `scout`, `coder`, `reviewer`, backed by the existing read-only sandbox operations and the one working hosted free model.
+3. Version-one reflexes: `scout` (existing read-only sandbox operations, no model), `coder` (the one working hosted free model) and `reviewer` (deterministic checks first, then that model).
 4. A switch `NLT_SUBAGENTS=1`, off by default.
 
 ## Rationale
@@ -23,7 +23,7 @@ The owner asked for an orchestration setup in which one model (System 2) selects
 - **Selection.** System 2 selects a reflex by name from an owner-set allow-list; no free-text model id, URL or command is accepted.
 - **Prompt injection.** Reflex output is untrusted data in a delimited, size-capped, schema-validated block. A string field can still carry injected text; the block header says it is data.
 - **Data flow.** A model-backed reflex sends its input to that model's provider; the data notice must say so. Version one adds no credential, no egress, no dependency and no persistence.
-- **Runtime.** Delegations consume the existing 270-second turn budget and the 300-second function limit; caps bound them. Any failure falls back to the current single-agent turn.
+- **Runtime.** Delegations consume the existing 270-second turn budget and the 300-second function limit; caps bound them. Any failure falls back to the current single-agent turn, and a 20-second continuation reserve keeps System 2 able to receive a timeout or decline before the turn-level abort.
 - **Layering.** ASFDK runtime-harness layer and AgentOS execution. The crisis gate still runs first. MCP is not a hop for any of it.
 - **Later phases, not approved here.** Encoder reflexes (model downloads, `huggingface.co` egress), local generators and smolagents (new dependency, Python in the sandbox), and browser reflexes (WebLLM dependency, client-side untrusted data) each cross a boundary and need their own record and approval.
 

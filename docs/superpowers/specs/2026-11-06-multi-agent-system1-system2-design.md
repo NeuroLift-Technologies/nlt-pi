@@ -24,6 +24,7 @@ The owner talks to one model, **System 2**: slow, deliberate, in charge of the g
 | First roles | `scout` (read-only), `coder` (proposes edits), `reviewer` (read-only). |
 | Caps | At most 3 delegations per turn; at most 60 seconds per delegation, inside the existing turn budget. |
 | Escalation threshold | 0.5 confidence, tuned later on logged outcomes. |
+| Continuation reserve | The server keeps 20 seconds of the turn budget back so System 2 can receive a result and continue. A delegation is declined (code `no_time`) when less than the reserve plus 10 seconds remains. |
 | Fast path (System 1 answers without waking System 2) | Deferred; not in version one. |
 | Switch | `NLT_SUBAGENTS=1`, owner-set, off by default. |
 
@@ -49,7 +50,7 @@ owner message
   -> final answer
 ```
 
-Everything runs inside one turn, in one sandbox, under the existing lock, one delegation at a time. If any part of the subsystem is off or fails, the turn runs exactly as it does today.
+Everything runs inside one turn, in one sandbox, under the existing lock, one delegation at a time. If any part of the subsystem is off or fails, the turn runs exactly as it does today, provided the continuation reserve in section 4 still remains; the turn-level abort stays the hard stop.
 
 ## 3. The reflex interface
 
@@ -68,11 +69,12 @@ interface Reflex<I, O> {
 
 type ReflexResult<O> =
   | { status: "ok"; output: O; confidence: number; needsEscalation: boolean }
-  | { status: "invalid" | "timeout" | "error"; reason: string };   // reason is a fixed code, not model text
+  | { status: "invalid" | "timeout" | "error" | "declined"; reason: string; needsEscalation: true };   // reason is a fixed code, not model text
 ```
 
 - Every output carries `confidence` (0 to 1) and `needsEscalation`. The server sets `needsEscalation` itself when confidence is below the threshold, when validation fails, or when two reflexes disagree. A reflex cannot suppress escalation.
-- `reason` for a failed delegation is one of a short fixed list. Model text never becomes a reason.
+- `reason` for a failed delegation is one of a short fixed list (`schema`, `deadline`, `error`, `no_time`, `cap`, `unknown_reflex`, `flag_off`). Model text never becomes a reason.
+- A failed or declined delegation always has `needsEscalation: true`, set by the server, and the result block carries it: `{"status":"timeout","reason":"deadline","needsEscalation":true}`. System 2 is told to handle the task itself or ask the owner.
 - The schema library is whatever the dependency tree already provides for tool parameters; the plan will name it. No new dependency is added in version one.
 
 ### Version-one reflexes
@@ -89,7 +91,7 @@ A custom tool registered next to the existing ones in `mvp/src/agent/runner.ts` 
 
 - **Input:** `{ reflex: <enum of allow-listed names>, input: <object> }`. The model supplies a name, never a model id, a URL or a command.
 - **Checks, in order:** the flag is on; the name is in the owner's allow-list; the per-turn count is below the cap; `input` validates against the reflex's input schema. Any failure returns a fixed error code and runs nothing.
-- **Run:** one delegation at a time, with a deadline of 60 seconds or the time left in the turn, whichever is shorter.
+- **Run:** one delegation at a time. The server keeps a continuation reserve of 20 seconds of the turn budget (`AGENT_REQUEST_BUDGET_MS`). The delegation deadline is the shorter of 60 seconds and the time left minus the reserve. If less than the reserve plus 10 seconds remains, the delegation is declined with `no_time` and runs nothing. This keeps System 2 able to receive a timeout or decline and carry on before the turn-level abort.
 - **Result to System 2:** a text block built by the server, never the reflex's raw output:
 
   ```
@@ -115,10 +117,10 @@ A reflex never writes. A `generator` returns **proposals** (`{ id, path, old, ne
 | **Authority** | Reflex output is proposed intent, not authorization. Nothing a reflex says widens egress, allows a command, selects a model or skips a check. System 2 and the harness keep the authority they have today. |
 | **Selection** | System 2 chooses from an owner-set allow-list by name. The server maps a name to a fixed implementation. No free-text model id, URL or command is accepted. |
 | **Models** | Any model-backed reflex must pass the existing free-model rule (`pickFreeModel`, `NLT_AGENT_MODELS`) or be an owner-approved local endpoint added in a later phase. |
-| **Caps** | 3 delegations per turn, 60 seconds each, inside `AGENT_REQUEST_BUDGET_MS` (270 s) and the function's `maxDuration` of 300 s. Exceeding a cap returns a fixed code. |
+| **Caps** | 3 delegations per turn, 60 seconds each, inside `AGENT_REQUEST_BUDGET_MS` (270 s) and the function's `maxDuration` of 300 s, with a 20-second continuation reserve (section 4). Exceeding a cap, or too little time, returns a fixed code. |
 | **Order** | The ASFDK crisis gate runs first, on the owner's message, exactly as today. Delegated text is derived from gated text. |
 | **Prompt injection** | Reflex output is untrusted data: delimited, size-capped, schema-validated. A string field can still carry injected text, so System 2 is told in the block header that it is data. Paths in proposals are re-confined by the operations layer. |
-| **Fail closed** | Flag off, allow-list empty, schema invalid, timeout or any error: the delegation returns a fixed code and the turn continues as a single agent. |
+| **Fail closed** | Flag off, allow-list empty, schema invalid, timeout or any error: the delegation returns a fixed code with `needsEscalation: true` and the turn continues as a single agent while the continuation reserve remains. |
 | **Logging** | One server-side line per delegation, `subagent_done reflex=<name> status=<code> ms=<n> confidence=<x>`, passed through the existing log redaction. No prompt, input or output content. |
 | **Privacy** | A model-backed reflex sends its input to that model's provider. The chat page's data notice says so while the flag is on. A deterministic or sandbox-local reflex sends nothing out. |
 | **Credentials** | None are added to the sandbox. No new egress in version one. |
@@ -141,7 +143,7 @@ System 2 checks a reflex's work with deterministic tools before reasoning again:
 
 ## 9. Testing and evaluation
 
-- **Unit and integration, offline:** fake reflexes and the faux provider. Cover: flag off, unknown reflex, input and output schema failures, each cap, the deadline, escalation on low confidence, result-block construction, proposal registry and `apply_proposal` refusals (outside root, `old` missing, `old` twice, unknown id, other turn).
+- **Unit and integration, offline:** fake reflexes and the faux provider. Cover: flag off, unknown reflex, input and output schema failures, each cap, the deadline, escalation on low confidence, result-block construction, proposal registry and `apply_proposal` refusals (outside root, `old` missing, `old` twice, unknown id, other turn, and an otherwise valid proposal for an in-workspace file the harness policy denies, where the application is refused and the file is unchanged). Also: every failed or declined delegation carries `needsEscalation: true` in the result block; a delegation is declined with `no_time` when less than the reserve plus 10 seconds remains, and its deadline never eats into the reserve.
 - **Mutation checks:** remove the allow-list check, a cap, schema validation, the untrusted-data header and the path re-confinement one at a time; each must make a test fail.
 - **Router and encoder evaluation (before phase 2 code):** a labelled set of real owner prompts mapped to roles, with the `mvp/test/corpus` crisis phrases as a separate guardrail check. Compare zero-shot Laya (with temperature calibration), MacJev-322M and NLI-DeBERTa against a TF-IDF logistic-regression baseline. Pick on accuracy, latency and size. The crisis gate is not replaced by any of them.
 - **Live:** one real turn with the flag on in a non-production environment before the owner enables it in production.
