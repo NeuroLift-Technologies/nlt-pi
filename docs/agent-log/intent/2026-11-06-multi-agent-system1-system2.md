@@ -14,6 +14,7 @@ The intent that a later implementation (phase 1) would carry out, recorded here 
 2. A reflex interface with typed input and output schemas, confidence and escalation, an owner-set allow-list, per-turn and per-call caps, and a server-built untrusted-data result block.
 3. Version-one reflexes: `scout` (existing read-only sandbox operations, no model), `coder` (the one working hosted free model) and `reviewer` (deterministic checks first, then that model).
 4. A switch `NLT_SUBAGENTS=1`, off by default.
+5. An OTOI declaration on every reflex (added at the owner's request after the first draft): checked by the server, a registration record per reflex, authority limited to proposing. A reflex without a valid declaration is not delegable.
 
 ## Rationale
 The owner asked for an orchestration setup in which one model (System 2) selects specialists (System 1) whose output is machine-readable, and approved the design in chat on 2026-11-06 (reflex kinds beyond chat models, roles `scout`, `coder`, `reviewer`, caps of 3 delegations and 60 seconds, 0.5 escalation threshold, fast path deferred). A written spec is the architectural path's required artifact before any plan or code.
