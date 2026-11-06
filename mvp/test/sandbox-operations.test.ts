@@ -400,15 +400,19 @@ describe("discovery tools (ls and find)", () => {
   it("matches glob patterns against paths relative to the search directory", async () => {
     const { sandbox, ops } = setup();
     sandbox.dirs.add("/ws/src");
+    sandbox.dirs.add("/ws/src/deep");
     sandbox.dirs.add("/ws/lib");
     sandbox.files.set("/ws/app.ts", Buffer.from("export {}"));
     sandbox.files.set("/ws/src/utils.ts", Buffer.from("export {}"));
+    sandbox.files.set("/ws/src/deep/nested.ts", Buffer.from("export {}"));
     sandbox.files.set("/ws/lib/helper.js", Buffer.from("export {}"));
     sandbox.files.set("/ws/data.json", Buffer.from("{}"));
 
-    // *.ts matches basenames directly in the search dir
+    // *.ts matches basenames at any depth (recursive basename semantics)
     await expect(ops.find.glob("*.ts", "/ws", { ignore: [], limit: 10 })).resolves.toEqual([
       "/ws/app.ts",
+      "/ws/src/deep/nested.ts",
+      "/ws/src/utils.ts",
     ]);
     // src/*.ts matches files directly under src/
     await expect(ops.find.glob("src/*.ts", "/ws", { ignore: [], limit: 10 })).resolves.toEqual([
@@ -427,6 +431,16 @@ describe("discovery tools (ls and find)", () => {
     await expect(ops.ls.readdir("/ws/secret-link")).rejects.toBeInstanceOf(SandboxPolicyError);
     await expect(ops.ls.exists("/ws/secret-link")).rejects.toBeInstanceOf(SandboxPolicyError);
     await expect(ops.ls.stat("/ws/secret-link")).rejects.toBeInstanceOf(SandboxPolicyError);
+  });
+
+  it("does not traverse symlinked directories outside the workspace during find.glob", async () => {
+    const { sandbox, ops } = setup();
+    sandbox.dirs.add("/etc/secrets");
+    sandbox.files.set("/etc/secrets/credentials.txt", Buffer.from("secret"));
+    sandbox.links.set("/ws/external", "/etc/secrets");
+    const results = await ops.find.glob("*", "/ws", { ignore: [], limit: 100 });
+    expect(results).not.toContain("/etc/secrets/credentials.txt");
+    expect(results.some((r) => r.startsWith("/etc/"))).toBe(false);
   });
 
   it("refuses to list or search outside the workspace", async () => {

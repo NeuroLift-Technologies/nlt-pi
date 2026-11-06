@@ -433,6 +433,9 @@ export function createSandboxToolOperations(
       const realCwd = await authorizeDiscovery("find", cwd);
       const matcher = globToRegExp(pattern);
       const ignored = ignore.map(globToRegExp);
+      // Patterns without a directory separator (e.g., "*.ts") use recursive
+      // basename matching: they match any file with that basename at any depth.
+      const basenameMatcher = pattern.includes("/") ? null : matcher;
       const results: string[] = [];
       const walk = async (dir: string, depth: number): Promise<void> => {
         if (results.length >= limit) return;
@@ -440,17 +443,36 @@ export function createSandboxToolOperations(
         for (const entry of entries) {
           const child = dir === "/" ? `/${entry}` : `${dir}/${entry}`;
           // Re-confine each discovered path so `..` entries cannot escape the workspace root.
-          const confined = confine(child);
-          const relativePath = realCwd === "/" ? confined.slice(1) : confined.slice(realCwd.length + 1);
+          let confined: string;
+          try {
+            confined = confine(child);
+          } catch {
+            continue; // lexical confinement failure (e.g., `..` escaping)
+          }
+          const relativePath =
+            realCwd === "/" ? confined.slice(1) : confined.slice(realCwd.length + 1);
           if (ignored.some((re) => re.test(relativePath))) continue;
-          // Match globs against paths relative to the search directory (Pi semantics),
-          // while storing absolute paths in results.
-          if (matcher.test(relativePath)) {
+          // Match globs against paths relative to the search directory (Pi
+          // semantics). Basename-only patterns (no "/") also match against the
+          // entry name at any depth (recursive basename semantics).
+          const matches =
+            (basenameMatcher ? basenameMatcher.test(entry) : false) ||
+            matcher.test(relativePath);
+          if (matches) {
             results.push(confined);
             if (results.length >= limit) return;
           }
-          if (depth < FIND_MAX_DEPTH && (await isDirectory(confined))) {
-            await walk(confined, depth + 1);
+          // Resolve symlinks and authorize each discovered directory before
+          // descending, so a symlink target outside the workspace is never
+          // traversed.
+          if (depth < FIND_MAX_DEPTH) {
+            try {
+              const resolved = await confineReal(child);
+              await walk(resolved.real, depth + 1);
+            } catch {
+              // Symlink target outside workspace or unresolvable — skip.
+              continue;
+            }
           }
         }
       };
