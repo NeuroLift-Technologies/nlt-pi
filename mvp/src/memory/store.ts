@@ -19,6 +19,8 @@ export interface MemoryInput {
 
 export interface MemoryStore {
   list(owner: string): Promise<Memory[]>;
+  /** Get one memory by id. Returns undefined when not found or not the owner's. */
+  get(owner: string, id: string): Promise<Memory | undefined>;
   /** `owned` is false when the memory id belongs to another owner; nothing is changed then. */
   save(owner: string, input: MemoryInput): Promise<{ owned: boolean; id?: string }>;
   remove(owner: string, id: string): Promise<boolean>;
@@ -49,6 +51,11 @@ export function fakeMemoryStore() {
       memories.delete(id);
       return true;
     },
+    async get(owner, id) {
+      const e = memories.get(id);
+      if (!e || e.owner !== owner) return undefined;
+      return e.m;
+    },
     async search(owner, _query, limit) {
       return [...memories.values()]
         .filter((e) => e.owner === owner)
@@ -74,6 +81,9 @@ export function createMem0Store(client: ReturnType<typeof import("./client.ts").
     },
     async remove(owner, id) {
       return client.remove(owner, id);
+    },
+    async get(owner, id) {
+      return client.get(owner, id);
     },
     async search(owner, query, limit) {
       return client.search(owner, query, limit);

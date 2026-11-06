@@ -62,7 +62,8 @@ function writeChecks(text: string): string | undefined {
 }
 
 /** Recall checks on each hit before injection. A hit that fails is skipped. */
-function recallChecks(text: string): boolean {
+export function recallChecks(text: string): boolean {
+  if (!text || text.length < 1) return false;
   if (!validateInputLength(text)) return false;
   const sanitized = sanitizeInput(text);
   if (!sanitized.clean) return false;

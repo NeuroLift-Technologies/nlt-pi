@@ -5,9 +5,10 @@
  * environment variables and are never passed to the browser or the sandbox.
  *
  * Endpoints used (all under MEM0_BASE_URL, default https://api.mem0.ai):
- *   POST /v1/memories/        create one memory
+ *   POST /v1/memories/        create one memory (infer=false: verbatim, no rewriting)
  *   GET  /v1/memories/?...    list/search by user and agent
- *   DELETE /v1/memories/{id}  delete one memory
+ *   GET  /v1/memories/{id}    get one memory by id (for ownership verification on delete)
+ *   DELETE /v1/memories/{id}  delete one memory (owner-verified by caller)
  *
  * Each memory stores:
  *   user_id   = the owner's session `sub` (server-side only)
@@ -46,6 +47,8 @@ export interface MemoryClient {
   }): Promise<string | undefined>;
   /** List the owner's memories for this agent. */
   list(owner: string): Promise<Memory[]>;
+  /** Get one memory by id. Returns undefined when not found or not the owner's. */
+  get(owner: string, id: string): Promise<Memory | undefined>;
   /** Delete one memory by id. False when not found or not the owner's. */
   remove(owner: string, id: string): Promise<boolean>;
   /** Search memories for the owner and agent, up to `limit` results. */
@@ -107,6 +110,21 @@ export function createMemoryClient(env: MemoryClientEnv): MemoryClient {
     return response.text();
   }
 
+  /** Fetch one memory by id; returns undefined when not found or not owned. */
+  async function get(owner: string, id: string): Promise<Memory | undefined> {
+    try {
+      const result = await request(`/v1/memories/${encodeURIComponent(id)}`);
+      const record = isRecord(result) ? result : {};
+      const mem = toMemory(record);
+      if (!mem) return undefined;
+      // Confirm the memory belongs to the requesting owner.
+      if (mem.text === undefined || record.user_id !== owner) return undefined;
+      return mem;
+    } catch {
+      return undefined;
+    }
+  }
+
   return {
     async create(owner, input) {
       try {
@@ -114,6 +132,7 @@ export function createMemoryClient(env: MemoryClientEnv): MemoryClient {
           user_id: owner,
           agent_id: AGENT_ID,
           content: input.text,
+          infer: false,
           metadata: {
             bucket: input.bucket,
             repo: REPO,
@@ -147,6 +166,11 @@ export function createMemoryClient(env: MemoryClientEnv): MemoryClient {
 
     async remove(owner, id) {
       try {
+        // Verify ownership before deleting: Mem0's DELETE endpoint may not
+        // enforce owner scoping, so we confirm the memory belongs to `owner`
+        // first. Never delete another owner's memory.
+        const existing = await get(owner, id);
+        if (!existing) return false;
         await request(`/v1/memories/${encodeURIComponent(id)}`, { method: "DELETE" });
         return true;
       } catch {
@@ -170,6 +194,9 @@ export function createMemoryClient(env: MemoryClientEnv): MemoryClient {
       } catch {
         return [];
       }
+    },
+    async get(owner, id) {
+      return get(owner, id);
     },
   };
 }

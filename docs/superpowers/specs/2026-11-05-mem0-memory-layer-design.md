@@ -128,6 +128,8 @@ Logs carry the operation name only (for example `{"event":"memory_error","op":"r
 - (e) Mem0's data retention and model-training terms.
 If (a) fails, stop and report; do not build around rewriting.
 
+Probe results are recorded in `docs/superpowers/specs/2026-11-06-mem0-probe-results.md` (pending owner verification against live Mem0).
+
 ## 8. Governance and records
 
 - Intent record under `docs/agent-log/` before implementation (new third-party processor and persistence boundary).
