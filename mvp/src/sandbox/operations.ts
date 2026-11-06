@@ -468,6 +468,8 @@ export function createSandboxToolOperations(
           if (depth < FIND_MAX_DEPTH) {
             try {
               const resolved = await confineReal(child);
+              // Regular files are never descended into (a file is not a valid cwd).
+              if (!(await isDirectory(resolved.real))) continue;
               await walk(resolved.real, depth + 1);
             } catch {
               // Symlink target outside workspace or unresolvable — skip.

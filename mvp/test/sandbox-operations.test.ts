@@ -94,8 +94,10 @@ class FakeSandbox implements SandboxLike {
       if (args[0] === "-1" && args[1] === "--") {
         this.commands.push(params);
         const dir = args[2];
+        // Like a real sandbox: a file (or missing path) cannot be a working directory or listed.
+        if (!this.dirs.has(dir) || (params.cwd !== undefined && !this.dirs.has(params.cwd))) return { exitCode: 2 };
         const names = new Set<string>();
-        for (const key of [...this.dirs, ...this.files.keys()]) {
+        for (const key of [...this.dirs, ...this.files.keys(), ...this.links.keys()]) {
           const parent = key.slice(0, key.lastIndexOf("/"));
           if (parent === dir) names.add(key.slice(dir.length + 1));
         }
@@ -441,6 +443,19 @@ describe("discovery tools (ls and find)", () => {
     const results = await ops.find.glob("*", "/ws", { ignore: [], limit: 100 });
     expect(results).not.toContain("/etc/secrets/credentials.txt");
     expect(results.some((r) => r.startsWith("/etc/"))).toBe(false);
+    // The symlink really was handed to the traversal, and its target was never listed.
+    expect(sandbox.commands.some((c) => c.args?.[2] === "/etc/secrets")).toBe(false);
+    expect(sandbox.commands.some((c) => c.cwd === "/etc/secrets")).toBe(false);
+  });
+
+  it("only descends into directories, never into regular files", async () => {
+    const { sandbox, ops } = setup();
+    sandbox.dirs.add("/ws/src");
+    sandbox.files.set("/ws/readme.md", Buffer.from("hi"));
+    sandbox.files.set("/ws/src/a.ts", Buffer.from("export {}"));
+    await expect(ops.find.glob("*.ts", "/ws", { ignore: [], limit: 10 })).resolves.toEqual(["/ws/src/a.ts"]);
+    const listed = sandbox.commands.filter((c) => c.cmd === "ls").map((c) => c.cwd);
+    expect(listed).toEqual(["/ws", "/ws/src"]);
   });
 
   it("refuses to list or search outside the workspace", async () => {
