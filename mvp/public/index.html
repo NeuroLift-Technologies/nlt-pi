@@ -38,9 +38,11 @@
           <span class="pill">Vercel MVP</span>
           <span class="pill pill-muted">Preview shell</span>
         </div>
-        <div class="account" title="Sign-in is not built yet">
-          <span class="avatar avatar-muted" aria-hidden="true">?</span>
-          <span>Not signed in</span>
+        <div class="account" id="account" aria-live="polite">
+          <span class="avatar avatar-muted" id="account-avatar" aria-hidden="true">?</span>
+          <span id="account-label">Checking sign-in</span>
+          <a class="signin" id="signin-link" href="/api/auth/login" hidden>Sign in with Vercel</a>
+          <button class="signin" id="signout" type="button" hidden>Sign out</button>
         </div>
       </header>
 
@@ -49,7 +51,12 @@
         <section class="card sessions" aria-labelledby="sessions-heading">
           <h2 id="sessions-heading">Recent sessions</h2>
           <ul id="session-list" class="session-list"></ul>
-          <p class="fine">Kept in this tab only. Closing or reloading the page clears them.</p>
+          <p class="fine" id="session-fine">Kept in this tab only. Closing or reloading the page clears them.</p>
+        </section>
+        <section class="card" aria-labelledby="memories-heading" id="memories-section" hidden>
+          <h2 id="memories-heading">Memories</h2>
+          <ul id="memory-list" class="memory-list"></ul>
+          <p class="fine" id="memory-fine">Owner-approved facts only. Nothing is remembered unless you say "Remember this".</p>
         </section>
         <section class="card brand-card">
           <h2>Governance</h2>
@@ -70,11 +77,25 @@
         </div>
 
         <div class="notice" role="note">
-          <strong>Preview.</strong> Each message goes through the ASFDK governance check and nothing else. No model is
-          connected and no tools run. Messages are not saved by this page.
+          <strong>Preview.</strong> When the owner has turned the agent on and you are signed in, the ASFDK governance
+          check runs on each message before the agent does. Otherwise nothing runs: the page asks you to sign in, or shows
+          the check result where the check is offered (it is not on production). <span id="save-notice">Messages are not saved by this page.</span>
+        </div>
+        <div class="notice" role="note">
+          <strong>Reminder.</strong> Free models only. When an agent turn is allowed and runs, your message and any
+          files or command output the agent reads are sent to the model provider, which may retain them or use them for
+          training. Messages blocked by the governance check are not sent.
         </div>
 
         <div class="log" id="log" role="log" aria-live="polite" aria-relevant="additions" tabindex="0"></div>
+
+        <div class="model-row">
+          <label for="model-select">Model</label>
+          <select id="model-select" disabled>
+            <option value="">Auto (best free)</option>
+          </select>
+          <span class="model-note" id="model-note">Free models only</span>
+        </div>
 
         <form class="composer" id="composer" autocomplete="off">
           <label class="sr-only" for="prompt">Message</label>
@@ -97,7 +118,7 @@
         <section class="card" aria-labelledby="activity-heading">
           <h2 id="activity-heading"><span class="dot" id="activity-dot" data-state="idle" aria-hidden="true"></span> Agent Activity</h2>
           <dl class="rows">
-            <div><dt>Model</dt><dd>None connected</dd></div>
+            <div><dt>Model</dt><dd id="activity-model">None connected</dd></div>
             <div><dt>Tools</dt><dd>Disabled</dd></div>
             <div><dt>Current task</dt><dd id="current-task">Idle</dd></div>
             <div><dt>Last check</dt><dd id="last-latency">—</dd></div>

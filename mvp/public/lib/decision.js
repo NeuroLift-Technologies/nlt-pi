@@ -16,6 +16,7 @@ const LEVEL_TONES = {
   emergency: "alert",
 };
 
+/** Maps a foundation crisis level to a display tone; unknown levels stay neutral. */
 export function levelTone(level) {
   if (typeof level !== "string") return "neutral";
   const key = level.toLowerCase();
@@ -147,5 +148,68 @@ export function agentDoneMessage(event) {
   if (event?.status === "busy") return "The agent is busy with another turn. Try again in a moment.";
   if (event?.status === "no_free_model") return "No free model is available right now.";
   if (event?.status === "timed_out") return "The turn ran out of time.";
-  return "The agent could not finish this turn.";
+  // The server's reason is shown as plain text (the page sets it with textContent), shortened to keep the note readable.
+  const reason = typeof event?.reason === "string" ? event.reason.trim().slice(0, MAX_SHOWN_REASON_LENGTH) : "";
+  return reason ? `The agent could not finish this turn: ${reason}` : "The agent could not finish this turn.";
+}
+
+/** Longest server reason shown in a failed turn's note. */
+const MAX_SHOWN_REASON_LENGTH = 300;
+
+/**
+ * What the header shows for the sign-in state. Only an explicit `signedIn: true` counts as signed in.
+ *
+ * @param {{ status?: number, body?: unknown, networkError?: boolean }} result
+ * @returns {{ state: "signed-in" | "signed-out" | "not-configured" | "unknown", label: string }}
+ */
+export function interpretSession(result) {
+  const { status, body, networkError } = result ?? {};
+  if (networkError || status !== 200 || body === null || typeof body !== "object") {
+    return { state: "unknown", label: "Sign-in unavailable" };
+  }
+  if (body.signedIn === true && typeof body.name === "string" && body.name.length > 0) {
+    return { state: "signed-in", label: `Signed in as ${body.name}` };
+  }
+  if (body.configured === false) return { state: "not-configured", label: "Sign-in not set up" };
+  return { state: "signed-out", label: "Not signed in" };
+}
+
+/** Longest model id the page will send; the server rejects anything longer. */
+export const MAX_MODEL_ID_LENGTH = 200;
+
+/**
+ * What the model selector shows for a `/api/models` answer. Only a 200 with a list counts; each entry needs a
+ * non-empty string id. Anything else leaves the selector on automatic choice.
+ *
+ * @param {{ status?: number, body?: unknown, networkError?: boolean }} result
+ * @returns {{ state: "ready" | "empty" | "unavailable", models: { id: string, label: string }[] }}
+ */
+export function interpretModels(result) {
+  const { status, body, networkError } = result ?? {};
+  if (networkError || status !== 200 || body === null || typeof body !== "object" || !Array.isArray(body.models)) {
+    return { state: "unavailable", models: [] };
+  }
+  const seen = new Set();
+  const models = [];
+  for (const item of body.models) {
+    if (item === null || typeof item !== "object") continue;
+    const id = typeof item.id === "string" ? item.id.trim() : "";
+    if (id.length === 0 || id.length > MAX_MODEL_ID_LENGTH || seen.has(id)) continue;
+    seen.add(id);
+    const name = typeof item.name === "string" && item.name.trim().length > 0 ? item.name.trim() : id;
+    models.push({ id, label: name === id ? id : `${name} (${id})` });
+  }
+  return { state: models.length > 0 ? "ready" : "empty", models };
+}
+
+/**
+ * The model id to send with a turn: the chosen one only if it is still in the loaded list, otherwise undefined
+ * (automatic). The server re-checks it either way.
+ *
+ * @param {string} selected
+ * @param {{ id: string }[]} models
+ */
+export function modelToSend(selected, models) {
+  if (typeof selected !== "string" || selected.length === 0) return undefined;
+  return Array.isArray(models) && models.some((model) => model.id === selected) ? selected : undefined;
 }

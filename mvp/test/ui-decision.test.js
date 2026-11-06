@@ -5,6 +5,9 @@ import {
   agentDoneMessage,
   assistantMessage,
   interpretGate,
+  interpretModels,
+  modelToSend,
+  interpretSession,
   levelTone,
   parseNdjson,
   resultLabel,
@@ -121,4 +124,66 @@ test("only an explicit completed status is a success", () => {
   for (const event of [undefined, {}, { status: "weird" }, { status: "blocked" }, { status: "error" }]) {
     assert.equal(typeof agentDoneMessage(event), "string");
   }
+});
+
+test("a failed turn shows the server's reason, shortened, and falls back to the generic note", () => {
+  assert.equal(agentDoneMessage({ status: "error", reason: "Gateway returned 401" }), "The agent could not finish this turn: Gateway returned 401");
+  assert.equal(agentDoneMessage({ status: "aborted", reason: "  cancelled  " }), "The agent could not finish this turn: cancelled");
+  for (const reason of [undefined, "", "   ", 42, null]) {
+    assert.equal(agentDoneMessage({ status: "error", reason }), "The agent could not finish this turn.");
+  }
+  const long = agentDoneMessage({ status: "error", reason: "x".repeat(1000) });
+  assert.equal(long, `The agent could not finish this turn: ${"x".repeat(300)}`);
+  // Statuses with their own message keep it.
+  assert.equal(agentDoneMessage({ status: "timed_out", reason: "ignored" }), "The turn ran out of time.");
+});
+
+test("only an explicit signedIn true with a name shows as signed in", () => {
+  assert.equal(interpretSession({ status: 200, body: { configured: true, signedIn: true, name: "Josh" } }).state, "signed-in");
+  assert.equal(interpretSession({ status: 200, body: { configured: true, signedIn: true } }).state, "signed-out");
+  assert.equal(interpretSession({ status: 200, body: { configured: true, signedIn: "yes", name: "x" } }).state, "signed-out");
+  assert.equal(interpretSession({ status: 200, body: { configured: false, signedIn: false } }).state, "not-configured");
+  for (const result of [undefined, { networkError: true }, { status: 500, body: { signedIn: true, name: "x" } }, { status: 200, body: null }]) {
+    assert.equal(interpretSession(result).state, "unknown");
+  }
+});
+
+test("the model list is ready only for a 200 with usable entries", () => {
+  const ready = interpretModels({
+    status: 200,
+    body: { models: [{ id: "a/one", name: "One" }, { id: "a/two" }, { id: "a/one", name: "Dup" }, { id: "" }, null, { name: "no id" }] },
+  });
+  assert.equal(ready.state, "ready");
+  assert.deepEqual(ready.models, [
+    { id: "a/one", label: "One (a/one)" },
+    { id: "a/two", label: "a/two" },
+  ]);
+  assert.equal(interpretModels({ status: 200, body: { models: [] } }).state, "empty");
+});
+
+test("every other model-list answer leaves the selector unavailable", () => {
+  for (const result of [
+    { status: 401, body: { error: "Sign in required" } },
+    { status: 404, body: { error: "Not found" } },
+    { status: 503, body: { models: [{ id: "a/one" }] } },
+    { status: 200, body: { models: "nope" } },
+    { status: 200, body: null },
+    { status: 200 },
+    { networkError: true },
+    undefined,
+  ]) {
+    const view = interpretModels(result);
+    assert.equal(view.state, "unavailable");
+    assert.deepEqual(view.models, []);
+  }
+  assert.equal(interpretModels({ status: 200, body: { models: [{ id: "x".repeat(201) }] } }).state, "empty");
+});
+
+test("only a model still in the loaded list is sent; otherwise the choice is automatic", () => {
+  const models = [{ id: "a/one" }, { id: "a/two" }];
+  assert.equal(modelToSend("a/two", models), "a/two");
+  assert.equal(modelToSend("a/gone", models), undefined);
+  assert.equal(modelToSend("", models), undefined);
+  assert.equal(modelToSend(undefined, models), undefined);
+  assert.equal(modelToSend("a/one", []), undefined);
 });

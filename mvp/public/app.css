@@ -65,6 +65,8 @@ button, textarea { font: inherit; color: inherit; }
   font-size: 0.85rem;
 }
 .pill-muted { color: var(--muted); }
+.signin { font: inherit; font-size: 0.85rem; color: var(--text, inherit); background: transparent; border: 1px solid var(--border, currentColor); border-radius: 8px; padding: 4px 10px; cursor: pointer; text-decoration: none; }
+.signin:hover { text-decoration: underline; }
 .account { margin-left: auto; display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 0.9rem; }
 .avatar {
   display: inline-grid;
@@ -131,6 +133,11 @@ button, textarea { font: inherit; color: inherit; }
 .session-list button[aria-current="true"] { background: rgb(36 120 255 / 22%); color: var(--text); }
 .session-list .when { flex: none; font-size: 0.75rem; }
 .session-list .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-list li { display: flex; align-items: stretch; gap: 4px; }
+.session-list li > button:first-child { flex: 1 1 auto; min-width: 0; }
+.session-list .save-state { flex: none; font-size: 0.7rem; opacity: 0.75; }
+.session-list .save-state.unsaved { color: var(--warn); opacity: 1; }
+.session-list .delete { flex: none; width: 2rem; justify-content: center; padding: 0; }
 
 .chat {
   grid-area: chat;
@@ -285,3 +292,74 @@ button, textarea { font: inherit; color: inherit; }
   .msg { animation: rise 0.18s ease-out; }
   @keyframes rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 }
+
+.model-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 0.85rem; }
+.model-row select { min-width: 0; max-width: 100%; flex: 0 1 320px; padding: 4px 8px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.25); background: rgba(255, 255, 255, 0.08); color: inherit; font: inherit; }
+.model-row select option { color: #111; background: #fff; }
+.model-row select:disabled { opacity: 0.6; }
+.model-note { opacity: 0.7; }
+
+/* Memories panel */
+.memory-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+.memory-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgb(11 23 51 / 50%);
+  font-size: 0.85rem;
+}
+.memory-text {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.memory-bucket {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.memory-delete {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--alert);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--alert);
+  cursor: pointer;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+.memory-delete:hover { background: var(--alert); color: var(--bg); }
+.memory-notice {
+  margin-top: 8px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* Remember this button on messages */
+.msg > div { display: flex; align-items: baseline; gap: 8px; }
+.remember {
+  margin-left: auto;
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.remember:hover { color: var(--accent-2); border-color: var(--accent-2); }

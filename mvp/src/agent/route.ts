@@ -13,8 +13,12 @@
  */
 import type { AgentRunnerDeps, AgentTurnInput, AgentTurnResult } from "./runner.ts";
 import { DEFAULT_AGENT_EGRESS } from "../sandbox/lifecycle.ts";
+import { redactForLog } from "./log-redact.ts";
 
 export const MAX_AGENT_PROMPT_LENGTH = 8000;
+
+/** Longest model id accepted from a client. Gateway ids are short; anything longer is not one. */
+export const MAX_AGENT_MODEL_LENGTH = 200;
 
 /** The function limit in `vercel.json`. A test checks the two agree. */
 export const AGENT_FUNCTION_MAX_DURATION_MS = 300_000;
@@ -36,6 +40,7 @@ export const AGENT_REQUEST_BUDGET_MS = 270_000;
 export interface AgentRequest {
   method?: string;
   body?: unknown;
+  headers?: Record<string, string | string[] | undefined>;
 }
 
 export interface AgentResponse {
@@ -59,6 +64,8 @@ export interface AgentRouteDeps {
   run: (deps: AgentRunnerDeps, input: AgentTurnInput) => Promise<AgentTurnResult>;
   log: (line: string) => void;
   now?: () => number;
+  /** True only for a signed-in owner. Required, so a route built without it cannot be reached by anyone. */
+  authorize: (request: AgentRequest) => boolean;
 }
 
 /** Whether the owner enabled the agent route (`NLT_AGENT_ENABLED=1`). Fails closed: anything else is off. */
@@ -86,6 +93,27 @@ function readPrompt(body: unknown): string | null {
   return typeof prompt === "string" && prompt.trim().length > 0 && prompt.length <= MAX_AGENT_PROMPT_LENGTH
     ? prompt
     : null;
+}
+
+/**
+ * Reads the optional `model` field. Returns undefined when absent or a blank string (automatic choice), the trimmed id
+ * when valid, or null when present but not a usable string, including JSON null (the caller rejects the request).
+ */
+function readModel(body: unknown): string | undefined | null {
+  let parsed = body;
+  if (typeof body === "string") {
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      return null;
+    }
+  }
+  if (parsed === null || typeof parsed !== "object") return null;
+  const model = (parsed as Record<string, unknown>).model;
+  if (model === undefined) return undefined;
+  if (typeof model !== "string" || model.length > MAX_AGENT_MODEL_LENGTH) return null;
+  const trimmed = model.trim();
+  return trimmed.length === 0 ? undefined : trimmed;
 }
 
 /** Maps a turn result to the NDJSON `done` event payload. */
@@ -124,11 +152,21 @@ export async function handleAgentRequest(
     response.status(405).json({ error: "Method not allowed" });
     return;
   }
+  if (!deps.authorize(request)) {
+    response.status(401).json({ error: "Sign in required" });
+    return;
+  }
   const prompt = readPrompt(request.body);
   if (prompt === null) {
     response
       .status(400)
       .json({ error: `Body must be JSON with a non-empty "prompt" string of at most ${MAX_AGENT_PROMPT_LENGTH} characters` });
+    return;
+  }
+
+  const model = readModel(request.body);
+  if (model === null) {
+    response.status(400).json({ error: `"model" must be a string of at most ${MAX_AGENT_MODEL_LENGTH} characters` });
     return;
   }
 
@@ -161,6 +199,7 @@ export async function handleAgentRequest(
   try {
     result = await deps.run(runnerDeps, {
       prompt,
+      model,
       signal: controller.signal,
       deadlineAt,
       onText: (delta) => send({ type: "text", delta }),
@@ -169,6 +208,20 @@ export async function handleAgentRequest(
   } catch {
     result = { status: "error", reason: "Agent turn failed" };
   }
-  send({ type: "done", ...describeResult(result) });
+  const done = describeResult(result);
+  // The outcome goes to the server log so a failed turn can be diagnosed; the prompt and the model's text never do.
+  deps.log(JSON.stringify({ event: "agent_turn_done", ...logSafeOutcome(done) }));
+  send({ type: "done", ...done });
   response.end();
+}
+
+/**
+ * The status, model and reason of a finished turn, for the server log. `status` is the stable category; the reason is
+ * redacted (credentials, query strings, control characters) and shortened. The browser's copy is not changed.
+ */
+function logSafeOutcome(done: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { status: done.status };
+  if (typeof done.model === "string") out.model = redactForLog(done.model);
+  if (typeof done.reason === "string") out.reason = redactForLog(done.reason);
+  return out;
 }

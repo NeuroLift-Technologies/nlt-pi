@@ -4,6 +4,7 @@ import {
   AGENT_FUNCTION_MAX_DURATION_MS,
   AGENT_LOCK_STALE_MS,
   AGENT_REQUEST_BUDGET_MS,
+  MAX_AGENT_MODEL_LENGTH,
   type AgentResponse,
   type AgentRouteDeps,
   agentEnabled,
@@ -45,7 +46,7 @@ function makeDeps(env: AgentRouteDeps["env"], result?: AgentTurnResult | (() => 
     return result ?? { status: "completed", text: "hi", model: "free/model" };
   });
   const log = vi.fn();
-  const deps: AgentRouteDeps = { env, createDeps, run, log };
+  const deps: AgentRouteDeps = { env, createDeps, run, log, authorize: () => true };
   return { deps, createDeps, run, log };
 }
 
@@ -74,6 +75,23 @@ describe("handleAgentRequest", () => {
     expect(log).not.toHaveBeenCalled();
   });
 
+  it("answers 401 and runs nothing without a signed-in owner, but still 404 when disabled", async () => {
+    const closed = makeDeps(on);
+    closed.deps.authorize = () => false;
+    const r = makeResponse();
+    await handleAgentRequest(post({ prompt: "hi" }), r.response, closed.deps);
+    expect(r.out.status).toBe(401);
+    expect(closed.createDeps).not.toHaveBeenCalled();
+    expect(closed.run).not.toHaveBeenCalled();
+    expect(closed.log).not.toHaveBeenCalled();
+
+    const off = makeDeps({});
+    off.deps.authorize = () => false;
+    const o = makeResponse();
+    await handleAgentRequest(post({ prompt: "hi" }), o.response, off.deps);
+    expect(o.out.status).toBe(404);
+  });
+
   it("rejects non-POST and bad bodies without running", async () => {
     const { deps, run } = makeDeps(on);
     const get = makeResponse();
@@ -83,6 +101,34 @@ describe("handleAgentRequest", () => {
     for (const body of [undefined, {}, { prompt: "" }, { prompt: "  " }, { prompt: 5 }, "not json", { prompt: "x".repeat(8001) }]) {
       const r = makeResponse();
       await handleAgentRequest(post(body), r.response, deps);
+      expect(r.out.status).toBe(400);
+    }
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("passes a valid model id to the run, trimmed, and treats absent or blank as automatic", async () => {
+    const { deps, run } = makeDeps(on);
+    for (const [body, expected] of [
+      [{ prompt: "hi", model: "synthetic/free-model" }, "synthetic/free-model"],
+      [{ prompt: "hi", model: "  synthetic/free-model  " }, "synthetic/free-model"],
+      [{ prompt: "hi" }, undefined],
+      [{ prompt: "hi", model: "" }, undefined],
+      [{ prompt: "hi", model: "   " }, undefined],
+      [JSON.stringify({ prompt: "hi", model: "synthetic/free-model" }), "synthetic/free-model"],
+    ] as const) {
+      run.mockClear();
+      const r = makeResponse();
+      await handleAgentRequest(post(body), r.response, deps);
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(run.mock.calls[0]?.[1].model).toBe(expected);
+    }
+  });
+
+  it("rejects a model that is not a string or is too long, without running", async () => {
+    const { deps, run } = makeDeps(on);
+    for (const model of [null, 5, true, {}, ["a"], "x".repeat(MAX_AGENT_MODEL_LENGTH + 1)]) {
+      const r = makeResponse();
+      await handleAgentRequest(post({ prompt: "hi", model }), r.response, deps);
       expect(r.out.status).toBe(400);
     }
     expect(run).not.toHaveBeenCalled();
@@ -136,6 +182,30 @@ describe("handleAgentRequest", () => {
     const line = String(log.mock.calls[0]?.[0]);
     expect(line).toContain("allowlist:packages,git");
     expect(line).not.toContain("secret-prompt-text");
+  });
+
+  it("logs each turn's outcome and reason, without the prompt or the model's text", async () => {
+    const reason = "Gateway returned 401 for https://ai-gateway.example/v1/chat?key=abc123 with Authorization: Bearer sk-test-0123456789abcdef";
+    const failed = makeDeps(on, { status: "error", reason });
+    const browser = makeResponse();
+    await handleAgentRequest(post({ prompt: "secret-prompt-text" }), browser.response, failed.deps);
+    const line = JSON.parse(String(failed.log.mock.calls.at(-1)?.[0]));
+    expect(line.event).toBe("agent_turn_done");
+    expect(line.status).toBe("error");
+    expect(line.reason).toContain("Gateway returned 401");
+    for (const leaked of ["abc123", "sk-test-0123456789abcdef"]) expect(line.reason).not.toContain(leaked);
+    // The browser's copy of the reason is the owner's diagnostic and is not changed by the log redaction.
+    const doneEvent = JSON.parse(browser.out.chunks.at(-1) as string);
+    expect(doneEvent.reason).toBe(reason);
+
+    const ok = makeDeps(on);
+    await handleAgentRequest(post({ prompt: "secret-prompt-text" }), makeResponse().response, ok.deps);
+    const done = String(ok.log.mock.calls.at(-1)?.[0]);
+    expect(JSON.parse(done)).toEqual({ event: "agent_turn_done", status: "completed", model: "free/model" });
+    for (const call of [...failed.log.mock.calls, ...ok.log.mock.calls]) {
+      expect(String(call[0])).not.toContain("secret-prompt-text");
+      expect(String(call[0])).not.toContain('"hi"');
+    }
   });
 
   it("enables egressAll only from the owner flag, never the request body", async () => {

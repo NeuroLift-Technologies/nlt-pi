@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { GATEWAY_API_URL, bindGatewayModel, runAgentTurn, type AgentRunnerDeps, type ModelBinding } from "../src/agent/runner.ts";
 import { NoFreeModelError, type GatewayCatalogModel } from "../src/gateway/free-models.ts";
 import type { AgentSandbox, AgentSandboxParams, SandboxClient } from "../src/sandbox/lifecycle.ts";
@@ -268,13 +268,101 @@ describe("runAgentTurn", () => {
     expect(client.sandbox.commands.filter((command) => command.cmd === "ls")).toEqual([]);
   });
 
-  it("stops and releases the lock when the caller aborts before the turn starts", async () => {
-    const { client, deps } = setup();
+  it("disposes a late model binding when setup is cancelled after bind starts", async () => {
+    const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+    const { client, deps, faux, state } = setup();
+    faux.setResponses([fauxAssistantMessage("should not run")]);
+    let disposed = 0;
+    let releaseBind: (() => void) | undefined;
+    const bindGate = new Promise<void>((resolve) => {
+      releaseBind = resolve;
+    });
     const controller = new AbortController();
-    controller.abort();
+    const inner = deps.bindModel!;
+    deps.bindModel = async (model, token) => {
+      const binding = await inner(model, token);
+      const wrapped: ModelBinding = {
+        ...binding,
+        dispose: async () => {
+          disposed += 1;
+          await binding.dispose?.();
+        },
+      };
+      controller.abort();
+      await bindGate;
+      return wrapped;
+    };
     const result = await runAgentTurn(deps, { prompt: "x", signal: controller.signal });
+    expect(result).toMatchObject({ status: "aborted" });
+    releaseBind?.();
+    await sleep(20);
+    expect(disposed).toBe(1);
+    expect(state.binds).toBe(1);
+    expect(client.sandbox.held).toBe(false);
+  });
+
+  it("stops an active turn when the caller aborts mid-run", async () => {
+    const { client, faux, deps } = setup();
+    const controller = new AbortController();
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall("write", { path: "first.txt", content: "a" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage(fauxToolCall("bash", { command: "echo later" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage("finished"),
+    ]);
+    const result = await runAgentTurn(deps, {
+      prompt: "work",
+      signal: controller.signal,
+      onToolStart: () => controller.abort(),
+    });
     expect(result.status).toBe("aborted");
-    expect((result as { reason?: string }).reason).toBe("The turn was cancelled by the caller");
+    expect(client.sandbox.held).toBe(false);
+    expect(client.sandbox.commands.some((command) => command.cmd === "bash")).toBe(false);
+  });
+
+  it("aborts setup stages after the lock is held and never calls the model or binds credentials", async () => {
+    const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+    for (const stage of ["token", "bind", "session"] as const) {
+      const { client, deps, faux, state } = setup();
+      faux.setResponses([fauxAssistantMessage("should not run")]);
+      const controller = new AbortController();
+      if (stage === "token") {
+        deps.gatewayToken = async () => {
+          setTimeout(() => controller.abort(), 10);
+          await sleep(120);
+          return TOKEN;
+        };
+      } else if (stage === "bind") {
+        const inner = deps.bindModel!;
+        deps.bindModel = async (model, token) => {
+          setTimeout(() => controller.abort(), 10);
+          await sleep(120);
+          return inner(model, token);
+        };
+      } else {
+        const original = client.sandbox.fs.access.bind(client.sandbox.fs);
+        client.sandbox.fs.access = async (path: string) => {
+          controller.abort();
+          return original(path);
+        };
+      }
+      const result = await runAgentTurn(deps, { prompt: "x", signal: controller.signal });
+      expect(result).toMatchObject({ status: "aborted" });
+      expect(client.sandbox.held).toBe(false);
+      if (stage === "token") expect(state.binds).toBe(0);
+    }
+  });
+
+  it("times out setup stages after the lock is held when the invocation deadline arrives", async () => {
+    const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+    const { client, deps, faux, state } = setup();
+    faux.setResponses([fauxAssistantMessage("should not run")]);
+    deps.gatewayToken = async () => {
+      await sleep(200);
+      return TOKEN;
+    };
+    const result = await runAgentTurn(deps, { prompt: "x", deadlineAt: Date.now() + 60 });
+    expect(result).toEqual({ status: "timed_out" });
+    expect(state.binds).toBe(0);
     expect(client.sandbox.held).toBe(false);
   });
 
@@ -319,6 +407,103 @@ describe("runAgentTurn", () => {
     expect(result.status).toBe("no_free_model");
     expect((result as { reason?: string }).reason).toContain("not a free model");
     expect(client.calls).toEqual([]);
+  });
+
+  it("passes the caller's requested model to the picker, and nothing when none was requested", async () => {
+    const seen: (string | undefined)[] = [];
+    const { deps, faux } = setup({
+      pickModel: async (requested?: string) => {
+        seen.push(requested);
+        return FREE;
+      },
+    });
+    faux.setResponses([fauxAssistantMessage("one"), fauxAssistantMessage("two")]);
+    await runAgentTurn(deps, { prompt: "x", model: "synthetic/free-model" });
+    await runAgentTurn(deps, { prompt: "y" });
+    expect(seen).toEqual(["synthetic/free-model", undefined]);
+  });
+
+  it("refuses without substituting when the requested model is not free right now", async () => {
+    const { client, deps } = setup({
+      pickModel: async (requested?: string) => {
+        throw new NoFreeModelError(`The requested model is not a free model right now: ${requested}`);
+      },
+    });
+    const result = await runAgentTurn(deps, { prompt: "x", model: "synthetic/priced-model" });
+    expect(result.status).toBe("no_free_model");
+    expect(client.calls).toEqual([]);
+  });
+
+  describe("default picker (no injected pickModel)", () => {
+    const catalog = {
+      data: [
+        { id: "synthetic/priced-model", type: "language", tags: ["tool-use"], context_window: 32_000, pricing: { input: "0.1", output: "0.1" } },
+        { id: "synthetic/free-model", type: "language", tags: ["tool-use"], context_window: 32_000, pricing: { input: "0", output: "0" } },
+        { id: "synthetic/other-free-model", type: "language", tags: ["tool-use"], context_window: 64_000, pricing: { input: "0", output: "0" } },
+      ],
+    };
+    const stubCatalog = () => {
+      cleanups.push(() => void vi.unstubAllGlobals());
+      vi.stubGlobal("fetch", async () => new Response(JSON.stringify(catalog), { status: 200, headers: { "content-type": "application/json" } }));
+    };
+
+    it("refuses a requested model that is priced, without substituting a free one", async () => {
+      stubCatalog();
+      const { client, deps } = setup({ pickModel: undefined });
+      const result = await runAgentTurn(deps, { prompt: "x", model: "synthetic/priced-model" });
+      expect(result.status).toBe("no_free_model");
+      expect(client.calls).toEqual([]);
+    });
+
+    it("refuses a requested model that is not listed at all", async () => {
+      stubCatalog();
+      const { client, deps } = setup({ pickModel: undefined });
+      const result = await runAgentTurn(deps, { prompt: "x", model: "synthetic/unknown-model" });
+      expect(result.status).toBe("no_free_model");
+      expect(client.calls).toEqual([]);
+    });
+
+    it("uses the requested free model, not the catalog's best one", async () => {
+      stubCatalog();
+      const { deps, faux } = setup({ pickModel: undefined });
+      faux.setResponses([fauxAssistantMessage("fine")]);
+      const result = await runAgentTurn(deps, { prompt: "x", model: "synthetic/free-model" });
+      expect(result).toMatchObject({ status: "completed", model: "synthetic/free-model" });
+    });
+
+    it("picks the best free model when none is requested", async () => {
+      stubCatalog();
+      const { deps, faux } = setup({ pickModel: undefined });
+      faux.setResponses([fauxAssistantMessage("fine")]);
+      const result = await runAgentTurn(deps, { prompt: "x" });
+      expect(result).toMatchObject({ status: "completed", model: "synthetic/other-free-model" });
+    });
+
+    it("uses the owner's default model when none is requested", async () => {
+      stubCatalog();
+      const { deps, faux } = setup({ pickModel: undefined, preferredModels: ["synthetic/free-model"] });
+      faux.setResponses([fauxAssistantMessage("fine")]);
+      expect(await runAgentTurn(deps, { prompt: "x" })).toMatchObject({ status: "completed", model: "synthetic/free-model" });
+    });
+
+    it("keeps an explicit request over the owner's default", async () => {
+      stubCatalog();
+      const { deps, faux } = setup({ pickModel: undefined, preferredModels: ["synthetic/free-model"] });
+      faux.setResponses([fauxAssistantMessage("fine")]);
+      expect(await runAgentTurn(deps, { prompt: "x", model: "synthetic/other-free-model" })).toMatchObject({
+        status: "completed",
+        model: "synthetic/other-free-model",
+      });
+    });
+
+    it("picks only from the owner's allow-list, and refuses a request outside it", async () => {
+      stubCatalog();
+      const { deps, faux } = setup({ pickModel: undefined, allowedModels: ["synthetic/free-model"] });
+      faux.setResponses([fauxAssistantMessage("fine")]);
+      expect(await runAgentTurn(deps, { prompt: "x" })).toMatchObject({ status: "completed", model: "synthetic/free-model" });
+      const refused = await runAgentTurn(deps, { prompt: "y", model: "synthetic/other-free-model" });
+      expect(refused.status).toBe("no_free_model");
+    });
   });
 
   it("accepts an injected free model after re-validation", async () => {

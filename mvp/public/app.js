@@ -1,6 +1,9 @@
 import {
   MAX_PROMPT_LENGTH,
   agentDoneMessage,
+  interpretModels,
+  interpretSession,
+  modelToSend,
   assistantMessage,
   formatClock,
   interpretGate,
@@ -9,13 +12,15 @@ import {
   resultLabel,
   validatePrompt,
 } from "./lib/decision.js";
+import { BLOCKED_PLACEHOLDER, HISTORY_NOTICE, createSaver, interpretConversation, interpretHistoryList, shortTitle } from "./lib/history.js";
 
 /**
  * Chat page for the nlt-pi MVP.
  *
  * What it does: sends each message to POST /api/govern (the ASFDK governance gate) and shows the verdict.
- * What it does not do: call a model, run a tool, sign anyone in, or save anything. Conversations live in
- * memory for this tab only. User text is only ever written with textContent.
+ * What it does not do: call a model, run a tool or sign anyone in. Conversations live in memory for this tab,
+ * unless the owner turned on saved history (NLT_HISTORY_ENABLED): then each exchange is also saved through
+ * /api/conversations, and saved conversations can be reopened and deleted. User text is only ever written with textContent.
  */
 
 const REQUEST_TIMEOUT_MS = 20000;
@@ -31,12 +36,17 @@ const els = {
   chips: document.querySelectorAll(".chip"),
   newChat: $("new-chat"),
   sessionList: $("session-list"),
+  sessionFine: $("session-fine"),
+  saveNotice: $("save-notice"),
   title: $("chat-title"),
   healthDot: $("health-dot"),
   healthLabel: $("health-label"),
   governanceSummary: $("governance-summary"),
   activityDot: $("activity-dot"),
   currentTask: $("current-task"),
+  modelSelect: $("model-select"),
+  modelNote: $("model-note"),
+  activityModel: $("activity-model"),
   lastLatency: $("last-latency"),
   spark: $("spark"),
   govVerification: $("gov-verification"),
@@ -48,11 +58,27 @@ const els = {
   sessionId: $("session-id"),
   sessionStarted: $("session-started"),
   events: $("events"),
+  accountAvatar: $("account-avatar"),
+  accountLabel: $("account-label"),
+  signinLink: $("signin-link"),
+  signout: $("signout"),
+  memoriesSection: $("memories-section"),
+  memoryList: $("memory-list"),
+  memoryFine: $("memory-fine"),
 };
 
 const tabSession = { id: crypto.randomUUID().slice(0, 8), startedAt: new Date() };
-/** @type {{ id: number, title: string, startedAt: Date, messages: { role: string, text: string, kind?: string, at: Date }[] }[]} */
+/**
+ * @type {{ id: string, title: string, startedAt: Date, messages: { id?: string, role: string, text: string, kind?: string, at: Date }[],
+ *   stored?: boolean, loaded?: boolean, saveState?: "saved" | "unsaved", unsaved?: object[] }[]}
+ */
 const conversations = [];
+/** True only after GET /api/conversations answered 200 for this tab. */
+let historyOn = false;
+/** True only after GET /api/memories answered 200 for this tab. */
+let memoryOn = false;
+/** One save at a time per conversation; see lib/history.js. */
+const saver = createSaver((body) => historyRequest("POST", { body }));
 let active = null;
 let pending = false;
 const latencies = [];
@@ -87,6 +113,13 @@ function renderMessage(message) {
   if (message.kind) bubble.dataset.kind = message.kind;
   body.append(speaker, bubble, el("span", "meta", formatClock(message.at)));
   wrap.append(who, body);
+  if (message.role === "user" && message.kind === "normal") {
+    const remember = el("button", "remember", "Remember this");
+    remember.type = "button";
+    remember.setAttribute("aria-label", `Remember this message: ${message.text}`);
+    remember.addEventListener("click", () => rememberMessage(message.text, message.id));
+    body.append(remember);
+  }
   return wrap;
 }
 
@@ -115,8 +148,18 @@ function renderSessions() {
         button.type = "button";
         if (conversation === active) button.setAttribute("aria-current", "true");
         button.append(el("span", "name", conversation.title), el("span", "when", formatClock(conversation.startedAt)));
+        if (historyOn && conversation.saveState) {
+          button.append(el("span", `save-state ${conversation.saveState}`, conversation.saveState === "saved" ? "Saved" : "Not saved"));
+        }
         button.addEventListener("click", () => select(conversation));
         item.append(button);
+        if (historyOn && conversation.stored) {
+          const remove = el("button", "delete", "✕");
+          remove.type = "button";
+          remove.setAttribute("aria-label", `Delete conversation: ${conversation.title}`);
+          remove.addEventListener("click", () => deleteConversation(conversation));
+          item.append(remove);
+        }
         return item;
       }),
   );
@@ -129,21 +172,24 @@ function select(conversation) {
   els.title.textContent = conversation.title;
   renderLog();
   renderSessions();
+  if (conversation.stored && !conversation.loaded) loadSaved(conversation);
 }
 
 function newConversation() {
   // Do not switch conversations while a turn is streaming.
   if (pending) return;
   const conversation = {
-    id: conversations.length + 1,
+    id: crypto.randomUUID(),
     title: "New conversation",
     startedAt: new Date(),
+    // Started in this tab, so everything it holds is already here.
+    loaded: true,
     messages: [
       {
         role: "assistant",
         kind: "info",
         at: new Date(),
-        text: "Hello. This is the NLT Coding Agent. Messages are checked by the ASFDK governance gate; agent turns run when the owner enables them. You can still try the check.",
+        text: "Hello. This is the NLT Coding Agent. Messages are checked by the ASFDK governance gate; agent turns run only when the owner enables them for this deployment. If a turn is unavailable, the page reports the governance check result instead.",
       },
     ],
   };
@@ -186,10 +232,12 @@ function showGate(view, latencyMs) {
   els.govComponents.textContent = view.components.length > 0 ? view.components.join(", ") : "—";
   els.govReason.hidden = !view.reason;
   els.govReason.textContent = view.reason ? `Reason from gate: ${view.reason}` : "";
-  els.lastLatency.textContent = `${Math.round(latencyMs)} ms`;
-  latencies.push(latencyMs);
-  if (latencies.length > SPARK_POINTS) latencies.shift();
-  drawSpark();
+  if (typeof latencyMs === "number" && Number.isFinite(latencyMs)) {
+    els.lastLatency.textContent = `${Math.round(latencyMs)} ms`;
+    latencies.push(latencyMs);
+    if (latencies.length > SPARK_POINTS) latencies.shift();
+    drawSpark();
+  }
 }
 
 async function askGate(prompt) {
@@ -221,7 +269,7 @@ async function runAgent(prompt, conversation) {
     response = await fetch("/api/agent", {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/x-ndjson" },
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({ prompt, model: modelToSend(els.modelSelect.value, loadedModels) }),
     });
   } catch {
     // The turn may have started before the connection failed; report it as an unavailable outcome rather than
@@ -229,10 +277,13 @@ async function runAgent(prompt, conversation) {
     return { text: "The agent could not be reached. The turn may have started, so check the sandbox before retrying.", kind: "unavailable" };
   }
   if (response.status === 404 || !response.body) return undefined;
+  if (response.status === 401) {
+    return { text: "Sign in with Vercel (top right) to use the agent.", kind: "unavailable" };
+  }
   if (!response.ok) {
     return { text: "The agent is unavailable right now.", kind: "unavailable" };
   }
-  const reply = { role: "assistant", kind: "allowed", text: "", at: new Date() };
+  const reply = { id: crypto.randomUUID(), role: "assistant", kind: "allowed", text: "", at: new Date() };
   conversation.messages.push(reply);
   const node = renderMessage(reply);
   const bubble = node.querySelector(".bubble");
@@ -282,17 +333,26 @@ function setPending(value) {
   els.currentTask.textContent = value ? "Governance check" : "Idle";
 }
 
+/** Handles a submitted prompt: validates it, tries the agent route, falls back to the governance check. */
 async function submit(raw) {
   if (pending) return;
   const checked = validatePrompt(raw);
   if (!checked.ok) return;
 
   const conversation = active;
+  // A saved conversation is not ready until its messages have loaded: sending earlier would mix the new exchange with
+  // the loading one. Keep the prompt and (re)try the load instead.
+  if (conversation.stored && !conversation.loaded) {
+    logEvent("Loading the saved conversation first", "busy");
+    loadSaved(conversation);
+    return;
+  }
   const isFirst = conversation.messages.filter((message) => message.role === "user").length === 0;
-  const userMessage = { role: "user", text: checked.prompt, at: new Date() };
+  const exchangeStart = conversation.messages.length;
+  const userMessage = { id: crypto.randomUUID(), role: "user", text: checked.prompt, at: new Date() };
   conversation.messages.push(userMessage);
   if (isFirst) {
-    conversation.title = checked.prompt.length > 28 ? `${checked.prompt.slice(0, 28)}…` : checked.prompt;
+    conversation.title = shortTitle(checked.prompt, 28);
     els.title.textContent = conversation.title;
   }
   els.prompt.value = "";
@@ -307,20 +367,30 @@ async function submit(raw) {
   if (agent) {
     setPending(false);
     if (agent.text) {
-      const failure = { role: "assistant", kind: agent.kind, text: agent.text, at: new Date() };
+      const failure = { id: crypto.randomUUID(), role: "assistant", kind: agent.kind, text: agent.text, at: new Date() };
       conversation.messages.push(failure);
       if (conversation === active) appendMessage(failure);
     }
+    if (agent.done?.status === "completed" && typeof agent.done.model === "string") els.activityModel.textContent = agent.done.model;
     logEvent(`Agent turn: ${agent.status ?? "ended"}`, agent.status === "completed" ? "online" : "idle");
     // Refresh the governance card from the turn's final outcome.
     if (agent.done?.status === "blocked") {
       showGate(
-        { kind: "blocked", components: [], reason: agent.done.reason, crisisLevel: agent.done.crisisLevel, failClosed: false },
+        {
+          kind: "blocked",
+          components: [],
+          reason: agent.done.reason,
+          crisisLevel: agent.done.crisisLevel,
+          failClosed: false,
+        },
         performance.now() - started,
       );
+    } else if (agent.done?.status === "completed" || agent.done?.status === "no_free_model") {
+      showGate({ kind: "allowed", components: [], failClosed: false }, NaN);
     } else if (agent.done?.status) {
-      showGate({ kind: "unavailable", components: [], failClosed: true }, performance.now() - started);
+      showGate({ kind: "unavailable", components: [], failClosed: true }, NaN);
     }
+    saveExchange(conversation, conversation.messages.slice(exchangeStart));
     els.prompt.focus();
     return;
   }
@@ -329,7 +399,7 @@ async function submit(raw) {
   const view = interpretGate(result);
   setPending(false);
 
-  const reply = { role: "assistant", kind: view.kind, text: assistantMessage(view), at: new Date() };
+  const reply = { id: crypto.randomUUID(), role: "assistant", kind: view.kind, text: assistantMessage(view), at: new Date() };
   conversation.messages.push(reply);
   showGate(view, elapsed);
   logEvent(
@@ -337,7 +407,165 @@ async function submit(raw) {
     view.kind === "allowed" ? "online" : view.kind === "blocked" ? "idle" : "offline",
   );
   if (conversation === active) appendMessage(reply);
+  saveExchange(conversation, conversation.messages.slice(exchangeStart));
   els.prompt.focus();
+}
+
+/** GET/POST/DELETE /api/conversations. Never throws: a failure is `{ networkError: true }`. */
+async function historyRequest(method, { id, body } = {}) {
+  try {
+    const response = await fetch(`/api/conversations${id ? `?id=${encodeURIComponent(id)}` : ""}`, {
+      method,
+      headers: { accept: "application/json", ...(body ? { "content-type": "application/json" } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    return { status: response.status, body: await response.json().catch(() => undefined) };
+  } catch {
+    return { networkError: true };
+  }
+}
+
+/** Saves a finished exchange (one save at a time per conversation). Chat never waits on it. */
+function saveExchange(conversation, exchange) {
+  if (!historyOn) return;
+  saver.enqueue(conversation, exchange).then(renderSessions);
+  renderSessions();
+}
+
+/** Loads a saved conversation's messages the first time it is opened. */
+async function loadSaved(conversation) {
+  if (conversation.loading) return;
+  conversation.loading = true;
+  const read = interpretConversation(await historyRequest("GET", { id: conversation.id }));
+  conversation.loading = false;
+  if (!read) {
+    // Stays not loaded, so opening it again or sending in it retries the load.
+    logEvent("Could not load the saved conversation", "offline");
+    return;
+  }
+  conversation.loaded = true;
+  conversation.messages = read.messages.map((m) => ({
+    id: m.id,
+    role: m.role,
+    kind: m.kind === "blocked" ? "blocked" : m.kind === "unavailable" ? "unavailable" : m.role === "assistant" ? "allowed" : undefined,
+    text: m.kind === "blocked" && m.text === "" ? BLOCKED_PLACEHOLDER : m.text,
+    at: new Date(m.createdAt),
+  }));
+  if (conversation === active) renderLog();
+}
+
+/** Deletes a saved conversation after confirmation; removes it from the sidebar only when the server agreed. */
+async function deleteConversation(conversation) {
+  if (pending || !window.confirm("Delete this conversation?")) return;
+  // Let a save that is still running finish first, so it cannot re-create the conversation after the delete.
+  await saver.idle(conversation);
+  const result = await historyRequest("DELETE", { id: conversation.id });
+  if (result.status !== 200) {
+    logEvent("Could not delete the conversation", "offline");
+    return;
+  }
+  conversation.unsaved = [];
+  conversations.splice(conversations.indexOf(conversation), 1);
+  logEvent("Conversation deleted", "idle");
+  if (conversation === active) newConversation();
+  else renderSessions();
+}
+
+/** Turns saved history on for this tab when the server lists conversations; anything else leaves the page as it was. */
+async function loadHistory() {
+  const view = interpretHistoryList(await historyRequest("GET"));
+  if (view.state !== "on") return;
+  historyOn = true;
+  els.saveNotice.textContent = HISTORY_NOTICE;
+  els.sessionFine.textContent = "Saved until you delete them (✕).";
+  // The sidebar shows the array newest-last; the server lists newest-first.
+  const saved = view.conversations.map((c) => ({
+    id: c.id,
+    title: c.title,
+    startedAt: new Date(c.updatedAt ?? c.createdAt ?? Date.now()),
+    messages: [],
+    stored: true,
+    loaded: false,
+    saveState: "saved",
+  }));
+  conversations.unshift(...saved.reverse());
+  renderSessions();
+}
+
+/** GET/POST/DELETE /api/memories. Never throws: a failure is `{ networkError: true }`. */
+async function memoryRequest(method, { id, body } = {}) {
+  try {
+    const response = await fetch(`/api/memories${id ? `?id=${encodeURIComponent(id)}` : ""}`, {
+      method,
+      headers: { accept: "application/json", ...(body ? { "content-type": "application/json" } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    return { status: response.status, body: await response.json().catch(() => undefined) };
+  } catch {
+    return { networkError: true };
+  }
+}
+
+/** Loads the owner's memories when memory is on; anything else leaves the page as it was. */
+async function loadMemories() {
+  const read = await memoryRequest("GET");
+  if (!read || read.status !== 200 || !Array.isArray(read.body.memories)) return;
+  memoryOn = true;
+  els.memoriesSection.hidden = false;
+  renderMemories(read.body.memories);
+  els.memoryFine.textContent = "Owner-approved facts only. Each turn may recall relevant memories as untrusted background.";
+}
+
+function renderMemories(memories) {
+  els.memoryList.replaceChildren(
+    ...memories.map((m) => {
+      const item = el("li", "memory-item");
+      item.append(
+        el("span", "memory-text", m.text),
+        el("span", "memory-bucket", m.bucket),
+        el("button", "memory-delete", "✕")
+      );
+      const deleteButton = item.querySelector(".memory-delete");
+      deleteButton.type = "button";
+      deleteButton.setAttribute("aria-label", `Delete memory: ${m.text}`);
+      deleteButton.addEventListener("click", () => deleteMemory(m.id));
+      return item;
+    }),
+  );
+}
+
+/** Saves one memory: POST /api/memories with { text, bucket, sourceMessageId }. */
+async function saveMemory(text, bucket, sourceMessageId) {
+  const result = await memoryRequest("POST", { body: { text, bucket, sourceMessageId } });
+  if (result.status === 200) {
+    await loadMemories();
+    return true;
+  }
+  logEvent("Could not save the memory", "offline");
+  return false;
+}
+
+/** Deletes one memory: DELETE /api/memories?id=... */
+async function deleteMemory(id) {
+  if (!window.confirm("Delete this memory?")) return;
+  const result = await memoryRequest("DELETE", { id });
+  if (result.status === 200) {
+    await loadMemories();
+    logEvent("Memory deleted", "idle");
+  } else {
+    logEvent("Could not delete the memory", "offline");
+  }
+}
+
+/** Prompts the owner to approve a message as a memory, then saves it. */
+async function rememberMessage(text, sourceMessageId) {
+  const bucket = prompt('Bucket for this memory ("owner" or "project"):', "owner");
+  if (bucket !== "owner" && bucket !== "project") return;
+  const edited = prompt("Edit the memory text:", text);
+  if (edited === null || edited.trim().length === 0) return;
+  await saveMemory(edited.trim(), bucket, sourceMessageId);
 }
 
 function autosize() {
@@ -402,3 +630,60 @@ drawSpark();
 autosize();
 newConversation();
 loadStatus();
+
+/** Shows who is signed in, or the sign-in link. The server decides; this only displays. */
+async function loadSession() {
+  let result;
+  try {
+    const response = await fetch("/api/auth/session", { headers: { accept: "application/json" } });
+    result = { status: response.status, body: await response.json().catch(() => undefined) };
+  } catch {
+    result = { networkError: true };
+  }
+  const view = interpretSession(result);
+  els.accountLabel.textContent = view.label;
+  els.accountAvatar.textContent = view.state === "signed-in" ? view.label.slice(-1).toUpperCase() : "?";
+  els.signinLink.hidden = view.state !== "signed-out";
+  els.signout.hidden = view.state !== "signed-in";
+  if (new URLSearchParams(location.search).get("signin") === "failed") {
+    els.accountLabel.textContent = "Sign-in failed, or this Vercel account is not allowed";
+  }
+  if (view.state === "signed-in") {
+    if (!historyOn) await loadHistory();
+    if (!memoryOn) await loadMemories();
+  }
+}
+
+els.signout.addEventListener("click", async () => {
+  await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+  await loadSession();
+});
+loadSession();
+
+/** Models from the last successful /api/models call. Held in memory only. */
+let loadedModels = [];
+
+/** Fills the model selector with the free models the server lists. Any failure leaves it on automatic. */
+async function loadModels() {
+  let result;
+  try {
+    const response = await fetch("/api/models", { headers: { accept: "application/json" } });
+    result = { status: response.status, body: await response.json().catch(() => undefined) };
+  } catch {
+    result = { networkError: true };
+  }
+  const view = interpretModels(result);
+  loadedModels = view.models;
+  const previous = els.modelSelect.value;
+  els.modelSelect.replaceChildren(new Option("Auto (best free)", ""));
+  for (const model of view.models) els.modelSelect.append(new Option(model.label, model.id));
+  els.modelSelect.value = modelToSend(previous, view.models) ?? "";
+  els.modelSelect.disabled = view.state !== "ready";
+  els.modelNote.textContent =
+    view.state === "ready"
+      ? `${view.models.length} free model${view.models.length === 1 ? "" : "s"} available`
+      : view.state === "empty"
+        ? "No free models listed right now"
+        : "Model list unavailable; using automatic choice";
+}
+loadModels();
