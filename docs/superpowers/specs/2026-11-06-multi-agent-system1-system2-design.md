@@ -25,7 +25,7 @@ The owner talks to one model, **System 2**: slow, deliberate, in charge of the g
 | Caps | At most 3 delegations per turn; at most 60 seconds per delegation, inside the existing turn budget. |
 | Escalation threshold | 0.5 confidence, tuned later on logged outcomes. |
 | Continuation reserve | The server keeps 20 seconds of the turn budget back so System 2 can receive a result and continue. A delegation is declined (code `no_time`) when less than the reserve plus 10 seconds remains. |
-| OTOI | Every reflex carries its own OTOI declaration (section 3a), enforced by the server, not by the reflex. A reflex without a valid declaration is not registered and cannot be delegated to. (Added by the owner after the first draft, 2026-11-06.) |
+| OTOI | Every reflex is an agent in the owner's `.otoi` charter mesh and is honored through the existing TOI/OTOI layer (`honor` in `strict` mode, then `propagate(policy, <reflex agent id>)`), the same way `nlt-pi-mvp` is today. An undeclared reflex is refused. (Added by the owner after the first draft, 2026-11-06; `nlt-otoi` read to confirm what it means.) |
 | Fast path (System 1 answers without waking System 2) | Deferred; not in version one. |
 | Switch | `NLT_SUBAGENTS=1`, owner-set, off by default. |
 
@@ -65,7 +65,7 @@ interface Reflex<I, O> {
   inputSchema: Schema<I>;
   outputSchema: Schema<O>;            // O always includes confidence and needsEscalation
   tools: readonly ("read" | "ls" | "find")[];   // read-only sandbox access at most in version one
-  otoi: ReflexOtoi;                   // section 3a; required
+  agentId: string;                    // its id in the owner's .otoi charter mesh (section 3a); required
   run(input: I, ctx: ReflexContext): Promise<unknown>;
 }
 
@@ -75,33 +75,23 @@ type ReflexResult<O> =
 ```
 
 - Every output carries `confidence` (0 to 1) and `needsEscalation`. The server sets `needsEscalation` itself when confidence is below the threshold, when validation fails, or when two reflexes disagree. A reflex cannot suppress escalation.
-- `reason` for a failed delegation is one of a short fixed list (`schema`, `deadline`, `error`, `no_time`, `cap`, `unknown_reflex`, `flag_off`, `otoi_invalid`). Model text never becomes a reason.
+- `reason` for a failed delegation is one of a short fixed list (`schema`, `deadline`, `error`, `no_time`, `cap`, `unknown_reflex`, `flag_off`, `otoi_refused`). Model text never becomes a reason.
 - A failed or declined delegation always has `needsEscalation: true`, set by the server, and the result block carries it: `{"status":"timeout","reason":"deadline","needsEscalation":true}`. System 2 is told to handle the task itself or ask the owner.
 - The schema library is whatever the dependency tree already provides for tool parameters; the plan will name it. No new dependency is added in version one.
 
 ### 3a. OTOI in every reflex
 
-Each reflex is an agent under the repository's OTOI contract (`NLT-PI-DEV-OTOI-1.0.1`), not a bare function. It carries a declaration that the server checks when the allow-list is built and again on every delegation:
+The repository already honors the owner's signed `.toi` and pinned `.otoi` charter for the main agent (`mvp/src/toi/honorer.ts`, spec `2026-11-06-toi-otoi-standing-terms-design.md`): `honor(charter, { loadSource })` with `strict` mode and `audit: true`, then `propagate(policy, "nlt-pi-mvp")`. The `@neurolift-technologies/otoi` package (already a dependency, so no new one) defines the charter's `agents` array: each entry has an `id` and optional `role`, `modalities` and `affordances`. Under `strict`, `propagate` refuses an agent that is not declared there.
 
-```ts
-interface ReflexOtoi {
-  contract: string;                    // must equal the repository contract id
-  agentName: string;                   // the [AGENT_NAME] used in logs and attribution, e.g. "nlt-reflex-scout"
-  registration: string;                // path of its record under docs/agent-log/registrations/
-  layer: "asfdk-runtime-harness";      // the only layer a reflex acts in
-  authority: "proposes-only";          // capability does not equal authority; a reflex never decides
-  humanAuthority: "owner-final";       // escalation always reaches System 2, then the owner
-  allowedTools: readonly string[];     // must equal `tools`; anything wider is rejected
-  dataFlow: "none" | "hosted-model";   // drives the data notice (section 6, Privacy)
-}
-```
+Each reflex joins that mesh:
 
-- **Enforced by the server.** On startup and per delegation the server rejects a reflex whose declaration is missing, names another contract, claims an authority above `proposes-only`, lists a tool outside its `tools`, or points to a registration record that does not exist. A rejected reflex is left out of the allow-list and the failure is logged with a fixed code (`otoi_invalid`).
-- **The declaration is not self-asserted authority.** It narrows what a reflex may do; it never widens it. The harness policy, path confinement and sandbox lock apply regardless.
-- **Registered like any agent.** Each reflex has a registration record under `docs/agent-log/registrations/`, created in the same pull request that adds it, and appears in `nltotoi.json` and `docs/active-threads.md` as the repository requires for agents. Model-backed reflexes also name the model they use.
-- **Layering is unchanged.** The reflex stays in the ASFDK runtime-harness layer. It is not a new governance layer, and MCP is not a hop for it.
-- **Escalation is part of the contract.** `needsEscalation` (above) is how a reflex honours "escalate, do not guess". A reflex cannot suppress it.
-- The `ReflexOtoi` field names are a proposal. The plan reconciles them with the schema in `nltotoi.json` and the registration template before code, and stops for the owner if they do not fit.
+- **Declared by the owner.** Every reflex has an agent id (for example `nlt-reflex-scout`, `nlt-reflex-coder`, `nlt-reflex-reviewer`) listed in the owner's `.otoi` charter `agents`, with a role and its `affordances` (the read-only tools it uses). Adding a reflex means the owner edits and re-signs the charter and updates the pinned `NLT_OTOI_SHA256`. No model or code path can do that (standing-terms spec, section 12).
+- **Honored per delegation.** Before a delegation runs, the server calls `propagate(policy, reflex.agentId)`. A refusal, a missing policy, or a charter that fails verification means the delegation is declined with `otoi_refused` and `needsEscalation: true`. The reflex is not run. This is the same fail-closed rule the main agent follows when its terms cannot be honored.
+- **The owner's terms bind the reflex.** A reflex receives the same effective `.toi` as the main agent. The privacy floor applies to it: if the owner's retention or consent terms forbid sending data to a hosted model, a model-backed reflex is not run. A reflex gets only the host-written behaviour notes built from recognized fields, never the raw `.toi` or `.otoi`.
+- **Affordances narrow, never widen.** A reflex's declared `affordances` must include every tool in its `tools` list, and the server grants only the intersection. The harness policy, path confinement and sandbox lock apply as before.
+- **Audit.** With `audit: true`, each delegation is recorded under the reflex's own agent id, in addition to the `subagent_done` log line (section 6).
+- **Registered like any agent.** Each reflex also gets a registration record under `docs/agent-log/registrations/` in the pull request that adds it, per the repository's rules.
+- **Layering is unchanged.** The reflex stays in the ASFDK runtime-harness layer; MCP is not a hop for it. A charter is data, not instructions: the reflex's prompt is fixed in code, and nothing from the charter becomes a command.
 
 ### Version-one reflexes
 
@@ -142,13 +132,13 @@ A reflex never writes. A `generator` returns **proposals** (`{ id, path, old, ne
 |---|---|
 | **Authority** | Reflex output is proposed intent, not authorization. Nothing a reflex says widens egress, allows a command, selects a model or skips a check. System 2 and the harness keep the authority they have today. |
 | **Selection** | System 2 chooses from an owner-set allow-list by name. The server maps a name to a fixed implementation. No free-text model id, URL or command is accepted. |
-| **OTOI** | Every reflex has a server-checked OTOI declaration and a registration record (section 3a). Invalid or missing: not delegable (`otoi_invalid`). It can only narrow a reflex's powers. |
+| **OTOI** | Each reflex is declared in the owner's `.otoi` charter and honored with `propagate(policy, agentId)` in `strict` mode on every delegation. Undeclared, refused or unverifiable: not run (`otoi_refused`). Affordances only narrow a reflex. The owner's privacy floor binds it (section 3a). |
 | **Models** | Any model-backed reflex must pass the existing free-model rule (`pickFreeModel`, `NLT_AGENT_MODELS`) or be an owner-approved local endpoint added in a later phase. |
 | **Caps** | 3 delegations per turn, 60 seconds each, inside `AGENT_REQUEST_BUDGET_MS` (270 s) and the function's `maxDuration` of 300 s, with a 20-second continuation reserve (section 4). Exceeding a cap, or too little time, returns a fixed code. |
 | **Order** | The ASFDK crisis gate runs first, on the owner's message, exactly as today. Delegated text is derived from gated text. |
 | **Prompt injection** | Reflex output is untrusted data: delimited, size-capped, schema-validated. A string field can still carry injected text, so System 2 is told in the block header that it is data. Paths in proposals are re-confined by the operations layer. |
 | **Fail closed** | Flag off, allow-list empty, schema invalid, timeout or any error: the delegation returns a fixed code with `needsEscalation: true` and the turn continues as a single agent while the continuation reserve remains. |
-| **Logging** | One server-side line per delegation, `subagent_done reflex=<name> agent=<agentName> status=<code> ms=<n> confidence=<x>`, passed through the existing log redaction. No prompt, input or output content. |
+| **Logging** | One server-side line per delegation, `subagent_done reflex=<name> agent=<agentId> status=<code> ms=<n> confidence=<x>`, passed through the existing log redaction. No prompt, input or output content. |
 | **Privacy** | A model-backed reflex sends its input to that model's provider. The chat page's data notice says so while the flag is on. A deterministic or sandbox-local reflex sends nothing out. |
 | **Credentials** | None are added to the sandbox. No new egress in version one. |
 | **Layering** | This is runtime orchestration (the ASFDK runtime-harness layer) and AgentOS execution. It does not replace development governance or integration governance, and MCP is not a hop for it. |
@@ -171,8 +161,8 @@ System 2 checks a reflex's work with deterministic tools before reasoning again:
 ## 9. Testing and evaluation
 
 - **Unit and integration, offline:** fake reflexes and the faux provider. Cover: flag off, unknown reflex, input and output schema failures, each cap, the deadline, escalation on low confidence, result-block construction, proposal registry and `apply_proposal` refusals (outside root, `old` missing, `old` twice, unknown id, other turn, and an otherwise valid proposal for an in-workspace file the harness policy denies, where the application is refused and the file is unchanged). Also: every failed or declined delegation carries `needsEscalation: true` in the result block; a delegation is declined with `no_time` when less than the reserve plus 10 seconds remains, and its deadline never eats into the reserve.
-- **OTOI tests:** a reflex with no declaration, a wrong contract id, an authority above `proposes-only`, a tool outside its `tools`, or a missing registration record is excluded from the allow-list and returns `otoi_invalid` with `needsEscalation: true`; the three version-one reflexes each have a registration record that the test resolves on disk.
-- **Mutation checks:** remove the allow-list check, the OTOI declaration check, a cap, schema validation, the untrusted-data header and the path re-confinement one at a time; each must make a test fail.
+- **OTOI tests (offline, fake charter):** a reflex not in the charter mesh, a charter that fails verification, and a `propagate` refusal each give `otoi_refused` with `needsEscalation: true` and run nothing; a declared reflex receives the effective policy; affordances narrower than `tools` shrink the granted tools; a privacy floor that forbids hosted-model use blocks a model-backed reflex but not a sandbox-local one; each delegation is audited under the reflex's agent id.
+- **Mutation checks:** remove the allow-list check, the `propagate` call, a cap, schema validation, the untrusted-data header and the path re-confinement one at a time; each must make a test fail.
 - **Router and encoder evaluation (before phase 2 code):** a labelled set of real owner prompts mapped to roles, with the `mvp/test/corpus` crisis phrases as a separate guardrail check. Compare zero-shot Laya (with temperature calibration), MacJev-322M and NLI-DeBERTa against a TF-IDF logistic-regression baseline. Pick on accuracy, latency and size. The crisis gate is not replaced by any of them.
 - **Live:** one real turn with the flag on in a non-production environment before the owner enables it in production.
 
@@ -198,4 +188,5 @@ System 2 checks a reflex's work with deterministic tools before reasoning again:
 2. Confirm `apply_proposal` as a tool System 2 calls (rather than System 2 re-issuing `edit` calls itself).
 3. Confirm the version-one reflex names and caps, or change them.
 4. Say whether a handoff record is wanted for the plan stage.
-5. Confirm section 3a is what you meant by "each subagent has OTOI incorporated": a server-checked declaration plus a registration record per reflex, with authority limited to proposing. If you meant something else (for example reflexes that read the full OTOI document at run time, or carry a separate TOI per reflex), say so and I will revise.
+5. Confirm section 3a is what you meant: each reflex is an agent in your `.otoi` charter, honored through `honor`/`propagate` in `strict` mode like `nlt-pi-mvp`, and you re-sign the charter and update the pinned checksum to add one. If there is more to it (for example per-reflex TOI files, or handoff and intent records written by each reflex at run time), say so.
+6. Choose reflex agent ids and roles for the charter (proposed: `nlt-reflex-scout`, `nlt-reflex-coder`, `nlt-reflex-reviewer`).
