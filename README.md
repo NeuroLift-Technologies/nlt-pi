@@ -96,15 +96,12 @@ NLT-Pi provides the following modular packages under the `@neurolift/nlt-pi-*` n
 
 | Package | Description |
 |---------|-------------|
-| `@neurolift/nlt-pi-chord` | Typed host runtime for plugins, contracts, replicated state, and RPC |
 | `@neurolift/nlt-pi-schema` | JSON Schema validation for supported schema drafts |
 | `@neurolift/nlt-pi-telemetry` | Vendor-neutral telemetry contracts and adapters |
 | `@neurolift/nlt-pi-ai` | Unified multi-provider LLM API |
-| `@neurolift/nlt-pi-durable` | Durable conversation, task, and document runtime |
 | `@neurolift/nlt-pi-agent-core` | Agent runtime, tool calling, and state management |
 | `@neurolift/nlt-pi-codemode` | Sandboxed JavaScript execution through injected tools |
 | `@neurolift/nlt-pi-mcp` | Standalone Model Context Protocol client |
-| `@neurolift/nlt-pi-env` | Remote execution environments for NLT-Pi Durable |
 | `@neurolift/nlt-pi-coding-agent` | Interactive coding-agent CLI |
 | `@neurolift/nlt-pi-tui` | Terminal UI library |
 
