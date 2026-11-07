@@ -9,7 +9,10 @@ import { sessionFromCookie } from "../src/auth/owner.ts";
 import { type MemoryRequest, handleMemoryRequest, memoryEnabled, writeChecks } from "../src/memory/route.ts";
 import type { MemoryStore } from "../src/memory/store.ts";
 import { createNeonMemoryStore } from "../src/memory/neon-store.ts";
+import { runEmbedForMemory } from "../src/memory/embed-route.ts";
+import { createEmbedRunner } from "../src/memory/sandbox-embed.ts";
 import type { AgentResponse } from "../src/agent/route.ts";
+import { createVercelSandboxClient } from "../src/sandbox/vercel-client.ts";
 import { neon } from "@neondatabase/serverless";
 import { verifyToi, type ToiDocument } from "@neurolift-technologies/toi";
 
@@ -139,18 +142,26 @@ export default async function handler(request: MemoryRequest, response: AgentRes
       sqlFor(databaseUrl).query(text, params) as Promise<Record<string, unknown>[]>,
   };
 
-  // Background embed trigger: fire-and-forget POST to /api/embed after a save.
-  // Uses the internal URL so it works on Vercel without an extra env var.
-  function triggerEmbed(id: string, _text: string) {
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : "http://localhost:3000";
-    const cookie = (request as MemoryRequest & { headers?: Record<string, string> }).headers?.cookie ?? "";
-    fetch(`${baseUrl}/api/embed`, {
-      method: "POST",
-      headers: { "content-type": "application/json", cookie },
-      body: JSON.stringify({ id }),
-    }).catch(() => undefined); // fire-and-forget; failure is silent
+  // Background embed trigger: fire-and-forget in-process embed after a save.
+  // Consolidates the former standalone background route (api/embed) into this handler so the
+  // deployment stays within the Hobby plan's serverless-function limit (one function per file).
+  const embedRunner = createEmbedRunner();
+  const sandboxClient = createVercelSandboxClient();
+  async function triggerEmbed(id: string, _text: string) {
+    const owner = sessionFromCookie(process.env, request.headers?.cookie)?.sub;
+    if (!owner) return;
+    await runEmbedForMemory(
+      {
+        env: { NLT_MEMORY_ENABLED: env.NLT_MEMORY_ENABLED, DATABASE_URL: env.DATABASE_URL ?? "" },
+        owner: () => owner,
+        sql,
+        embedRunner,
+        sandboxClient,
+        log: (line: string) => console.warn(line),
+      },
+      id,
+      owner,
+    ).catch(() => undefined); // fire-and-forget; failure is silent
   }
 
   const store: MemoryStore = createNeonMemoryStore(sql, { triggerEmbed });
