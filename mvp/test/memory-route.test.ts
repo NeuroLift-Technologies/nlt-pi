@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { type MemoryRequest, type MemoryRouteDeps, handleMemoryRequest, memoryEnabled, recallChecks } from "../src/memory/route.ts";
-import type { MemoryStore } from "../src/memory/store.ts";
+import type { Memory, MemoryStore } from "../src/memory/store.ts";
 import type { AgentResponse } from "../src/agent/route.ts";
 
 // Synthetic values only.
@@ -10,18 +10,20 @@ const NOW = Date.parse("2026-11-05T12:00:00.000Z");
 
 /** In-memory store keyed by owner, with the same contract as the Mem0 store. */
 function fakeStore() {
-  const memories = new Map<string, { owner: string; text: string; bucket: string; createdAt: string }>();
+  const memories = new Map<string, { owner: string; m: Memory }>();
   let tick = 0;
   const store: MemoryStore = {
     async list(owner) {
       return [...memories.values()]
         .filter((e) => e.owner === owner)
-        .map((e) => ({ id: e.owner + "-" + tick, text: e.text, bucket: e.bucket as "owner", createdAt: e.createdAt }))
+        .map((e) => e.m)
         .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
     },
     async save(owner, input) {
       const id = `mem-${++tick}`;
-      memories.set(id, { owner, text: input.text, bucket: input.bucket, createdAt: new Date(NOW + tick * 1000).toISOString() });
+      const at = new Date(NOW + tick * 1000).toISOString();
+      const m: Memory = { id, text: input.text, bucket: input.bucket, createdAt: at, sourceMessageId: input.sourceMessageId };
+      memories.set(id, { owner, m });
       return { owned: true, id };
     },
     async remove(owner, id) {
@@ -33,12 +35,12 @@ function fakeStore() {
     async get(owner, id) {
       const e = memories.get(id);
       if (!e || e.owner !== owner) return undefined;
-      return { id, text: e.text, bucket: e.bucket as "owner", createdAt: e.createdAt };
+      return e.m;
     },
     async search(owner, _query, limit) {
       return [...memories.values()]
         .filter((e) => e.owner === owner)
-        .map((e) => ({ id: e.owner + "-" + tick, text: e.text, bucket: e.bucket as "owner", createdAt: e.createdAt }))
+        .map((e) => e.m)
         .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
         .slice(0, limit);
     },
