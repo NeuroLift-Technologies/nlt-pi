@@ -77,9 +77,10 @@ If Rivet's `agentOSProvider` adapter satisfies this contract directly, the clien
 
 The server already computes the egress list from presets, always-allowed hosts and turn grants, validates every entry, and applies it before the turn runs (fail closed to presets on lookup failure). That computation is unchanged. What changes is enforcement:
 
-- the agentOS client translates the computed host list into agentOS network permissions for the turn, after the crisis gate and before the VM is touched, so a blocked prompt never reaches Rivet;
+- the server computes the host list after the crisis gate and before backend contact, so a blocked prompt never reaches Rivet. Only after acquiring the per-Actor turn lock does the client apply this turn's policy, before any agent tool or command runs;
+- reconnecting or requesting the lock must not mutate the Actor's active policy. A newly created Actor starts with egress denied (or an equivalent no-egress state) until its lock holder applies the computed policy. If the hosted API cannot safely replace and revoke policy on a reused Actor, or cannot keep pre-lock reconnect policy-neutral, the design fails and the fallback applies;
 - presets (npm, yarn, PyPI, GitHub including `api.github.com` for `gh`) keep their meaning; `NLT_AGENT_EGRESS_ALL=1` maps to the agentOS allow-all equivalent and still suppresses the access-request tool;
-- the lock is taken before the policy is stated, exactly as today (a reused computer keeps the policy it was created with);
+- reconnect leaves the existing policy in place; only the lock holder replaces it with the current turn's policy;
 - if the permissions call fails, the turn fails; it never widens.
 
 The sandbox-access-requests design's authority model is preserved verbatim: the computer is not an authorization authority; it only enforces the policy the server computed from the owner's decisions. The access-request flow, its nonce binding and its Neon storage are untouched.
@@ -88,7 +89,7 @@ The sandbox-access-requests design's authority model is preserved verbatim: the 
 
 `src/sandbox/lifecycle.ts` keeps its contract and gains a backend parameter. The lock itself is already filesystem-based (an atomic `mkdir` of a directory holding the turn's random token, released only if the token is still its own), so it ports to the agentOS filesystem with the same semantics:
 
-- one turn at a time; a second turn gets `SandboxBusyError` and touches nothing;
+- one turn at a time; a second turn gets `SandboxBusyError`, runs no tool or workspace work, and cannot change the active turn's network policy. Reconnect and lock-check requests may reach the Actor before refusal, so they must be policy-neutral;
 - a stale lock (older than 15 minutes) can be taken over under the same short-lived mutex; the takeover window and its millisecond caveat carry over as-is;
 - the work function's `AbortSignal` aborts at 80% of the stale age; an unsettled turn throws `SandboxTurnTimeoutError` and the lock is left to expire;
 - the lock scripts stay fixed text with every value passed as an argument; no model or user input reaches them; an agent with `bash` inside the VM could delete the lock, which would only allow two turns to overlap in the owner's own computer — same exposure, same wording in the README.
@@ -107,13 +108,15 @@ The 270-second absolute deadline, the stale age of 320 seconds and the grace per
 
 - **Parity.** The existing operations and lifecycle tests run against a fake agentOS client with the same assertions used for the fake Vercel sandbox: policy review before each operation, path containment including symlink escapes, environment never forwarded, caps enforced, errors never passes, lock semantics (busy, stale takeover, abort, timeout).
 - **Unit.** Backend selection (default, unknown value, unset); egress translation (presets, grants, allow-all, empty list, lookup failure fails closed); permission call failure fails the turn.
+- **Policy lifecycle.** With a fake persisted Actor, verify per-turn policy replacement (including one-time grant removal, allow-all to deny-all and broader to narrower transitions) and that policy-update failure prevents all tool work. The live probe (section 10) verifies effective network blocking, not only the policy value returned by the API.
+- **Concurrent turns.** Hold the lock with one policy, then attempt a second turn with a different policy. The second turn must be busy, run no tools, and leave the first turn's effective policy unchanged. Verify that reconnect and lock acquisition do not apply the second turn's policy before it owns the lock.
 - **Mutation checks** on each rule: removing the policy review, the fail-closed egress path, the environment filter or the lock token check must fail a test.
 - **Runner.** The offline suite with the faux provider and the fake agentOS client: same statuses, same short-circuits (blocked gate, no free model, busy computer each stop before the next step).
 - **Not verifiable offline:** the hosted agentOS Actor, its persistence across turns, real egress enforcement inside the VM, coreutils sufficiency for the agent's commands, timing inside the 270-second budget, and Rivet Cloud plan limits. Confirmed by the probe (section 10), then one live turn with the owner after deploy.
 
 ## 10. Rollout
 
-1. **Probe first (a throwaway script, not product code).** Before any implementation, a probe against a hosted agentOS Actor answers: the exact HTTP/SDK surface for exec and file operations; whether a persisted filesystem survives across Actor wake cycles; the egress permission syntax and whether an allowlist can express the presets; cold and warm timings for lock-plus-policy-plus-first-exec; pricing and plan limits. The probe's findings are recorded as a results file next to this spec (the mem0 spec and probe-results pair is the precedent) and the design is revised before implementation.
+1. **Probe first (a throwaway script, not product code).** Before any implementation, a probe against a hosted agentOS Actor answers: the exact HTTP/SDK surface for exec and file operations; whether a persisted filesystem survives across Actor wake cycles; the egress permission syntax and whether an allowlist can express the presets; cold and warm timings for lock-plus-policy-plus-first-exec; pricing and plan limits. On the *same persisted Actor*, the probe must also apply a one-time host grant, then omit it on the next turn and verify that the host is blocked; verify allow-all to deny-all and broader to narrower policy changes; and hold one turn's lock while a second request with a different policy reconnects and is refused, confirming the active policy does not change and no second-turn tool runs. Verify actual network blocking, not only reported configuration. If policy cannot be safely replaced/revoked on a reused Actor or reconnect is not policy-neutral before lock acquisition, revise the design and use the fallback; do not implement on an unverified assumption. Record the results next to this spec (the mem0 spec and probe-results pair is the precedent) and revise the design before implementation.
 2. **Merge with `NLT_SANDBOX_BACKEND` unset:** no change in behavior; the Vercel Sandbox stays the computer.
 3. **Owner sets `NLT_SANDBOX_BACKEND=agentos` plus the Rivet credential settings in one environment** (preview first) and runs a live turn: a file edit, a command, a blocked host, an access-request resume.
 4. **Promote to production** after the owner accepts the results file; the Vercel Sandbox backend remains available as the fallback until the owner removes it in a later change.
