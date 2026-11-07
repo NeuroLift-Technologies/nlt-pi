@@ -11,7 +11,7 @@ The repository's architecture names AgentOS as the agent's execution environment
 
 - **Outcome:** the agent's tool operations execute inside a Rivet agentOS VM instead of a Vercel Sandbox, with every existing governance control preserved: harness policy review before each operation, crisis gate before any execution, computed egress policy, one turn at a time, no host environment, no credentials in the computer.
 - **For whom:** the signed-in owner only, unchanged.
-- **Success:** a live turn on the production deployment runs the agent's tools in agentOS, produces the same statuses (`completed`, `blocked`, `busy`, `, `no_free_model`, `timed_out`, `aborted`, `error`) under the same route and deadline, and a blocked host or command is blocked there exactly as it is today.
+- **Success:** a live turn on the production deployment runs the agent's tools in agentOS, produces the same statuses (`completed`, `blocked`, `busy`, `no_free_model`, `timed_out`, `aborted`, `error`) under the same route and deadline, and a blocked host or command is blocked there exactly as it is today.
 
 ### Decisions (proposed; recorded here for the owner to confirm or change)
 
