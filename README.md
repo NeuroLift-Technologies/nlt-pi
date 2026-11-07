@@ -90,25 +90,25 @@ The architecture describes the intended NLT Coding Agent operating model. Existi
 
 These components have distinct responsibilities. The Foundation does not replace the Harness, MCP does not replace runtime enforcement, and the agent must not be able to authorize its own actions.
 
-## Pi foundation
+## NLT-Pi Foundation
 
-NLT-Pi is based on the TypeScript Pi monorepo and retains its modular packages:
+NLT-Pi provides the following modular packages under the `@neurolift/nlt-pi-*` namespace:
 
 | Package | Description |
 |---------|-------------|
-| `@earendil-works/chord` | Typed host runtime for plugins, contracts, replicated state, and RPC |
-| `@earendil-works/pi-schema` | JSON Schema validation for supported schema drafts |
-| `@earendil-works/pi-telemetry` | Vendor-neutral telemetry contracts and adapters |
-| `@earendil-works/pi-ai` | Unified multi-provider LLM API |
-| `@earendil-works/pi-durable` | Durable conversation, task, and document runtime |
-| `@earendil-works/pi-agent-core` | Agent runtime, tool calling, and state management |
-| `@earendil-works/pi-codemode` | Sandboxed JavaScript execution through injected tools |
-| `@earendil-works/pi-mcp` | Standalone Model Context Protocol client |
-| `@earendil-works/pi-env` | Remote execution environments for Pi Durable |
-| `@earendil-works/pi-coding-agent` | Interactive coding-agent CLI |
-| `@earendil-works/pi-tui` | Terminal UI library |
+| `@neurolift/nlt-pi-chord` | Typed host runtime for plugins, contracts, replicated state, and RPC |
+| `@neurolift/nlt-pi-schema` | JSON Schema validation for supported schema drafts |
+| `@neurolift/nlt-pi-telemetry` | Vendor-neutral telemetry contracts and adapters |
+| `@neurolift/nlt-pi-ai` | Unified multi-provider LLM API |
+| `@neurolift/nlt-pi-durable` | Durable conversation, task, and document runtime |
+| `@neurolift/nlt-pi-agent-core` | Agent runtime, tool calling, and state management |
+| `@neurolift/nlt-pi-codemode` | Sandboxed JavaScript execution through injected tools |
+| `@neurolift/nlt-pi-mcp` | Standalone Model Context Protocol client |
+| `@neurolift/nlt-pi-env` | Remote execution environments for NLT-Pi Durable |
+| `@neurolift/nlt-pi-coding-agent` | Interactive coding-agent CLI |
+| `@neurolift/nlt-pi-tui` | Terminal UI library |
 
-Some package names and code retain historical upstream provenance. That provenance is preserved in the applicable license and NOTICE files; it does not create an upstream contribution obligation or require compatibility with upstream.
+Some package names and code retain historical upstream provenance from the TypeScript Pi monorepo. That provenance is preserved in the applicable license and NOTICE files; it does not create an upstream contribution obligation or require compatibility with upstream.
 
 ## Getting started
 
