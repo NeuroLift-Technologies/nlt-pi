@@ -1,26 +1,20 @@
 /**
  * Owner-only memories (list, save, delete). Off unless the owner sets NLT_MEMORY_ENABLED=1.
  *
- * Wires src/memory/route.ts to Mem0. The owner is the signed-in Vercel user from the session cookie.
- * The Mem0 client and credentials are server side only — never passed to the browser or the sandbox.
+ * Wires src/memory/route.ts to the Neon+pgvector store (NLTPI-MEM-003). The owner is the
+ * signed-in Vercel user from the session cookie. Neon credentials are server-side only.
  * This file is not exercised by the offline tests.
  */
 import { sessionFromCookie } from "../src/auth/owner.ts";
 import { type MemoryRequest, handleMemoryRequest, memoryEnabled, writeChecks } from "../src/memory/route.ts";
-import { type MemoryStore, createMem0Store } from "../src/memory/store.ts";
-import { createMemoryClient, type MemoryClientEnv } from "../src/memory/client.ts";
+import type { MemoryStore } from "../src/memory/store.ts";
+import { createNeonMemoryStore } from "../src/memory/neon-store.ts";
+import { runEmbedForMemory } from "../src/memory/embed-route.ts";
+import { createEmbedRunner } from "../src/memory/sandbox-embed.ts";
 import type { AgentResponse } from "../src/agent/route.ts";
+import { createVercelSandboxClient } from "../src/sandbox/vercel-client.ts";
 import { neon } from "@neondatabase/serverless";
-import { verifyToi, parseToi, type ToiDocument } from "@neurolift-technologies/toi";
-
-let cachedClient: { env: MemoryClientEnv; client: ReturnType<typeof createMemoryClient> } | undefined;
-
-function memoryClient(env: MemoryClientEnv) {
-  if (!cachedClient || cachedClient.env !== env) {
-    cachedClient = { env, client: createMemoryClient(env) };
-  }
-  return cachedClient.client;
-}
+import { verifyToi, type ToiDocument } from "@neurolift-technologies/toi";
 
 let cachedSql: { url: string; sql: ReturnType<typeof neon> } | undefined;
 
@@ -57,7 +51,7 @@ async function handleToiUpload(
   request: MemoryRequest,
   response: AgentResponse,
   owner: string,
-  env: MemoryClientEnv & { NLT_TOI_PUBKEY?: string; NLT_MEMORY_ENABLED?: string },
+  env: { NLT_TOI_PUBKEY?: string; NLT_MEMORY_ENABLED?: string },
 ): Promise<boolean> {
   if (request.method !== "POST") return false;
   const url = (request as MemoryRequest & { url?: string }).url ?? "";
@@ -117,19 +111,20 @@ async function handleToiUpload(
     return true;
   }
 
-  const client = memoryClient(env);
-  const id = await client.create(owner, {
-    text: toiText,
-    bucket: "owner",
-    sourceMessageId: undefined,
-    metadata: { kind: "toi", source: "owner-upload" },
-  });
-  if (!id) {
+  // Store the TOI as a memory row with bucket "owner". No embedding needed for TOI uploads.
+  const databaseUrl = (env as { DATABASE_URL?: string }).DATABASE_URL ?? "";
+  const toiSql = {
+    query: (text: string, params: unknown[]) =>
+      sqlFor(databaseUrl).query(text, params) as Promise<Record<string, unknown>[]>,
+  };
+  const toiStore = createNeonMemoryStore(toiSql);
+  const result = await toiStore.save(owner, { text: toiText, bucket: "owner" });
+  if (!result.owned || !result.id) {
     response.status(503).json({ error: "Memory unavailable" });
     return true;
   }
 
-  response.status(200).json({ uploaded: true, id });
+  response.status(200).json({ uploaded: true, id: result.id });
   return true;
 }
 
@@ -138,15 +133,38 @@ export default async function handler(request: MemoryRequest, response: AgentRes
     NLT_MEMORY_ENABLED?: string;
     NLT_HISTORY_ENABLED?: string;
     DATABASE_URL?: string;
-    MEM0_API_KEY?: string;
-    MEM0_ORG_ID?: string;
-    MEM0_PROJECT_ID?: string;
-    MEM0_BASE_URL?: string;
     NLT_TOI_PUBKEY?: string;
   };
 
-  const databaseUrl = env.DATABASE_URL;
-  const store: MemoryStore = createMem0Store(memoryClient(env));
+  const databaseUrl = env.DATABASE_URL ?? "";
+  const sql = {
+    query: (text: string, params: unknown[]) =>
+      sqlFor(databaseUrl).query(text, params) as Promise<Record<string, unknown>[]>,
+  };
+
+  // Background embed trigger: fire-and-forget in-process embed after a save.
+  // Consolidates the former standalone background route (api/embed) into this handler so the
+  // deployment stays within the Hobby plan's serverless-function limit (one function per file).
+  const embedRunner = createEmbedRunner();
+  const sandboxClient = createVercelSandboxClient();
+  async function triggerEmbed(id: string, _text: string) {
+    const owner = sessionFromCookie(process.env, request.headers?.cookie)?.sub;
+    if (!owner) return;
+    await runEmbedForMemory(
+      {
+        env: { NLT_MEMORY_ENABLED: env.NLT_MEMORY_ENABLED, DATABASE_URL: env.DATABASE_URL ?? "" },
+        owner: () => owner,
+        sql,
+        embedRunner,
+        sandboxClient,
+        log: (line: string) => console.warn(line),
+      },
+      id,
+      owner,
+    ).catch(() => undefined); // fire-and-forget; failure is silent
+  }
+
+  const store: MemoryStore = createNeonMemoryStore(sql, { triggerEmbed });
 
   // Phase 2: TOI upload route takes precedence for POST /api/memories/toi.
   const isToiUpload = (request as MemoryRequest & { url?: string }).url?.endsWith("/toi");
