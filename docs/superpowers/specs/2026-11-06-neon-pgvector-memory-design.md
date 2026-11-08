@@ -40,7 +40,7 @@ Inside `runAgentTurn`, after the crisis gate and before the Neon search, the run
 
 This means:
 - Every save is instant from the owner's perspective.
-- Embeddings are eventually consistent: a memory saved during an active turn gets embedded on the next `/api/embed` call or the next recall, whichever comes first.
+- Embeddings are eventually consistent: a memory saved during an active turn gets embedded on the next `/api/embed` call or the next recall, whichever comes first. Failed embedding attempts leave rows with NULL embeddings, which remain eligible for retry on subsequent `/api/embed` calls or recall operations until embedding succeeds.
 - Recall always works: pgvector for embedded rows, trigram for the rest.
 
 ### 2.2 Model location in the sandbox

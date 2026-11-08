@@ -135,20 +135,8 @@ describe("embed route", () => {
   });
 
   it("sets Cache-Control: no-store", async () => {
-    const { out } = makeResponse();
-    const { response } = (() => {
-      const r = makeResponse();
-      return r;
-    })();
     const result = await call(post({ id: MEM_ID }), makeDeps());
-    // headers tracked in makeResponse
-    const { out: o2 } = (() => {
-      const r = makeResponse();
-      handleEmbedRequest(post({ id: MEM_ID }), r.response, makeDeps());
-      return r;
-    })();
-    // Just verify the route sets it — covered by the response helper
-    expect(result).toBeDefined();
+    expect(result.headers["Cache-Control"]).toBe("no-store");
   });
 
   it("logs operation name only — never logs text, owner or id", async () => {
@@ -163,8 +151,12 @@ describe("embed route", () => {
   });
 
   it("a blocked prompt never reaches this route — gate runs first in the runner", async () => {
-    // This route is called only after the runner decides to embed (i.e. after the gate passed).
-    // Documented here as a reminder: embed-route itself has no gate — the runner owns that invariant.
+    // This route handles background embedding of saved memories only, not in-turn recall.
+    // The crisis gate runs in the runner before any embed or recall; this route is called
+    // only for saved memories (after the gate passed). The embed route itself has no gate
+    // because it operates on already-saved, owner-approved data. In-turn recall is handled
+    // by the runner's recallFactory and is subject to the crisis gate there.
+    // This is a documentation test: the invariant is enforced by the runner, not this route.
     expect(true).toBe(true);
   });
 });

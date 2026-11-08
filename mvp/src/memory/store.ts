@@ -15,6 +15,8 @@ export interface MemoryInput {
   text: string;
   bucket: MemoryBucket;
   sourceMessageId?: string;
+  /** Discriminator for memory kind: 'memory' (default) or 'toi' for TOI uploads. */
+  kind?: "memory" | "toi";
 }
 
 export interface MemoryStore {

@@ -18,12 +18,12 @@ const FAKE_ROW = {
 
 function stubSql(
   rowsFor: (text: string) => Record<string, unknown>[],
-): NeonSqlRunner & { calls: string[] } {
-  const calls: string[] = [];
+): NeonSqlRunner & { calls: Array<{ text: string; params: unknown[] }> } {
+  const calls: Array<{ text: string; params: unknown[] }> = [];
   return {
     calls,
-    async query(text, _params) {
-      calls.push(text.trim());
+    async query(text, params) {
+      calls.push({ text: text.trim(), params });
       return rowsFor(text);
     },
   };
@@ -43,7 +43,7 @@ function makeSandbox(): SandboxLike {
 }
 
 function makeEmbedRunner(vec: number[] | null): EmbedRunner {
-  return { embed: async () => vec };
+  return { embed: async (_text: string, _sandbox: SandboxLike, _timeoutMs?: number) => vec };
 }
 
 describe("createNeonMemoryStore", () => {
@@ -52,12 +52,13 @@ describe("createNeonMemoryStore", () => {
     const store = createNeonMemoryStore(sql);
     await store.list(OWNER);
     await store.list(OWNER);
-    const schemaCalls = sql.calls.filter((c) => c.startsWith("CREATE"));
+    const schemaCalls = sql.calls.filter((c) => c.text.startsWith("CREATE"));
     // Extensions + table + 3 indexes = 6 CREATE statements
     expect(schemaCalls.length).toBeGreaterThanOrEqual(6);
     // Schema created only once
-    const secondListCalls = sql.calls.slice(sql.calls.findIndex((c) => c.startsWith("CREATE")) + schemaCalls.length);
-    expect(secondListCalls.filter((c) => c.startsWith("CREATE")).length).toBe(0);
+    const createIndex = sql.calls.findIndex((c) => c.text.startsWith("CREATE"));
+    const secondListCalls = sql.calls.slice(createIndex + schemaCalls.length);
+    expect(secondListCalls.filter((c) => c.text.startsWith("CREATE")).length).toBe(0);
   });
 
   it("list returns rows scoped to owner", async () => {
@@ -67,10 +68,10 @@ describe("createNeonMemoryStore", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].text).toBe("I prefer TypeScript");
     // owner_sub in every non-schema query
-    const workCalls = sql.calls.filter((c) => !c.startsWith("CREATE"));
-    expect(workCalls.every((_, i) => {
-      // The raw call text isn't checked here — owner scoping is checked via parameterisation
-      return true;
+    const workCalls = sql.calls.filter((c) => !c.text.startsWith("CREATE"));
+    expect(workCalls.every((c) => {
+      // Verify owner predicate is bound: the query must contain $1 (owner_sub) and params must include OWNER
+      return c.text.includes("$1") && c.params.includes(OWNER);
     })).toBe(true);
   });
 
@@ -106,8 +107,10 @@ describe("createNeonMemoryStore", () => {
     const store = createNeonMemoryStore(sql);
     expect(await store.remove(OWNER, FAKE_ROW.id)).toBe(true);
     // DELETE statement uses parameterised owner scope
-    const delCall = sql.calls.find((c) => c.startsWith("DELETE"));
+    const delCall = sql.calls.find((c) => c.text.startsWith("DELETE"));
     expect(delCall).toBeDefined();
+    // Verify owner predicate is bound
+    expect(delCall?.params).toContain(OWNER);
   });
 
   it("remove returns false when row not found or wrong owner", async () => {
@@ -125,7 +128,7 @@ describe("createNeonMemoryStore", () => {
     const results = await store.search(OWNER, "typescript preferences", 5);
     expect(results.length).toBeGreaterThan(0);
     // Should have called a vector query (contains <=>)
-    const vectorCalls = sql.calls.filter((c) => c.includes("<=>"));
+    const vectorCalls = sql.calls.filter((c) => c.text.includes("<=>"));
     expect(vectorCalls.length).toBeGreaterThan(0);
   });
 
@@ -138,9 +141,9 @@ describe("createNeonMemoryStore", () => {
     const results = await store.search(OWNER, "typescript", 5);
     expect(results.length).toBeGreaterThan(0);
     // No vector query
-    expect(sql.calls.filter((c) => c.includes("<=>")).length).toBe(0);
+    expect(sql.calls.filter((c) => c.text.includes("<=>")).length).toBe(0);
     // Trigram query used
-    expect(sql.calls.some((c) => c.includes("similarity"))).toBe(true);
+    expect(sql.calls.some((c) => c.text.includes("similarity"))).toBe(true);
   });
 
   it("search falls back to trigram when no embed runner provided", async () => {
@@ -148,21 +151,28 @@ describe("createNeonMemoryStore", () => {
     const store = createNeonMemoryStore(sql); // no embedRunner
     const results = await store.search(OWNER, "typescript", 5);
     expect(results.length).toBeGreaterThan(0);
-    expect(sql.calls.filter((c) => c.includes("<=>")).length).toBe(0);
+    expect(sql.calls.filter((c) => c.text.includes("<=>")).length).toBe(0);
   });
 
   it("search deduplicates and caps at limit", async () => {
-    // Return the same row from both vector and trgm queries
-    const sql = stubSql(() => [FAKE_ROW, FAKE_ROW]);
+    // Overlapping vector and trigram result sets with distinct IDs. FAKE_ROW appears in
+    // both queries, so deduplication is the only way it appears once; the cap then trims
+    // the fourth row. Without dedup this returns 4 ids; without the cap it returns 4.
+    const second = { ...FAKE_ROW, id: "22222222-2222-4222-8222-222222222222", text: "second result" };
+    const third = { ...FAKE_ROW, id: "33333333-3333-4333-8333-333333333333", text: "third result" };
+    const fourth = { ...FAKE_ROW, id: "44444444-4444-4444-8444-444444444444", text: "fourth result" };
+    const sql = stubSql((text) => {
+      if (text.includes("<=>")) return [FAKE_ROW, second];
+      if (text.includes("similarity")) return [FAKE_ROW, third, fourth];
+      return [];
+    });
     const store = createNeonMemoryStore(sql, {
       embedRunner: makeEmbedRunner(GOOD_VEC),
       sandbox: makeSandbox(),
     });
-    const results = await store.search(OWNER, "typescript", 1);
-    // Deduped by id and capped at 1
-    const ids = results.map((r) => r.id);
-    expect(new Set(ids).size).toBe(ids.length);
-    expect(results.length).toBeLessThanOrEqual(1);
+    const results = await store.search(OWNER, "typescript", 3);
+    // Vector rows come first (more relevant), then trgm with the duplicate FAKE_ROW skipped.
+    expect(results.map((r) => r.id)).toEqual([FAKE_ROW.id, second.id, third.id]);
   });
 
   it("mutation: removing owner scope causes owner isolation to break (documents the invariant)", async () => {
@@ -173,9 +183,12 @@ describe("createNeonMemoryStore", () => {
     // With correct scoping, list for OTHER returns the stub rows
     // (the stub doesn't actually filter — we verify the SQL contains owner_sub binding via calls)
     await store.list(OTHER);
-    // Every non-schema query must include owner_sub as a positional param.
-    // We verify this by checking that all queries use parameterised form ($1, $2...)
-    const workCalls = sql.calls.filter((c) => !c.startsWith("CREATE"));
-    expect(workCalls.every((c) => c.includes("$"))).toBe(true);
+    await store.get(OTHER, FAKE_ROW.id);
+    // Every read query (list, get) must include owner_sub as a parameter bound to the requested owner.
+    const workCalls = sql.calls.filter((c) => !c.text.startsWith("CREATE"));
+    expect(workCalls.every((c) => {
+      // Verify the query contains owner_sub parameter ($1) and the param is bound to the requested owner
+      return c.text.includes("$1") && c.params.includes(OTHER);
+    })).toBe(true);
   });
 });

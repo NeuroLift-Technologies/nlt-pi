@@ -18,6 +18,10 @@ import { verifyToi, type ToiDocument } from "@neurolift-technologies/toi";
 
 let cachedSql: { url: string; sql: ReturnType<typeof neon> } | undefined;
 
+/**
+ * Returns a cached Neon SQL client for the given database URL.
+ * Creates a new client if the URL has changed.
+ */
 function sqlFor(url: string) {
   if (!cachedSql || cachedSql.url !== url) {
     cachedSql = { url, sql: neon(url) };
@@ -111,14 +115,14 @@ async function handleToiUpload(
     return true;
   }
 
-  // Store the TOI as a memory row with bucket "owner". No embedding needed for TOI uploads.
+  // Store the TOI as a memory row with bucket "owner" and kind "toi". No embedding needed for TOI uploads.
   const databaseUrl = (env as { DATABASE_URL?: string }).DATABASE_URL ?? "";
   const toiSql = {
     query: (text: string, params: unknown[]) =>
       sqlFor(databaseUrl).query(text, params) as Promise<Record<string, unknown>[]>,
   };
   const toiStore = createNeonMemoryStore(toiSql);
-  const result = await toiStore.save(owner, { text: toiText, bucket: "owner" });
+  const result = await toiStore.save(owner, { text: toiText, bucket: "owner", kind: "toi" });
   if (!result.owned || !result.id) {
     response.status(503).json({ error: "Memory unavailable" });
     return true;
@@ -150,7 +154,7 @@ export default async function handler(request: MemoryRequest, response: AgentRes
   async function triggerEmbed(id: string, _text: string) {
     const owner = sessionFromCookie(process.env, request.headers?.cookie)?.sub;
     if (!owner) return;
-    await runEmbedForMemory(
+    const promise = runEmbedForMemory(
       {
         env: { NLT_MEMORY_ENABLED: env.NLT_MEMORY_ENABLED, DATABASE_URL: env.DATABASE_URL ?? "" },
         owner: () => owner,
@@ -162,6 +166,11 @@ export default async function handler(request: MemoryRequest, response: AgentRes
       id,
       owner,
     ).catch(() => undefined); // fire-and-forget; failure is silent
+    // Register with waitUntil if available (Vercel Functions) so the background work completes
+    const vercelResponse = response as unknown as { waitUntil?: (promise: Promise<unknown>) => void };
+    if (typeof vercelResponse.waitUntil === "function") {
+      vercelResponse.waitUntil(promise);
+    }
   }
 
   const store: MemoryStore = createNeonMemoryStore(sql, { triggerEmbed });

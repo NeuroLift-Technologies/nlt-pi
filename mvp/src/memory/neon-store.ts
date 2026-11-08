@@ -35,7 +35,8 @@ const SCHEMA: readonly string[] = [
     bucket        text NOT NULL CHECK (bucket IN ('owner', 'project')),
     source_msg_id uuid,
     embedding     vector(384),
-    created_at    timestamptz NOT NULL DEFAULT now()
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    kind          text CHECK (kind IN ('memory', 'toi')) DEFAULT 'memory'
   )`,
   `CREATE INDEX IF NOT EXISTS memories_owner
     ON memories (owner_sub, created_at DESC)`,
@@ -48,6 +49,10 @@ const SCHEMA: readonly string[] = [
 
 const TRGM_THRESHOLD = 0.1;
 
+/**
+ * Converts a database row to a Memory object.
+ * Handles type validation and conversion for each field.
+ */
 function rowToMemory(row: Record<string, unknown>): Memory | undefined {
   const id = typeof row.id === "string" ? row.id : undefined;
   const text = typeof row.text === "string" ? row.text : undefined;
@@ -72,21 +77,25 @@ export interface NeonMemoryStoreOptions {
   triggerEmbed?: (id: string, text: string) => void;
 }
 
+const schemaReadyCache = new Map<NeonSqlRunner, Promise<void>>();
+
 export function createNeonMemoryStore(
   sql: NeonSqlRunner,
   options: NeonMemoryStoreOptions = {},
 ): MemoryStore {
-  let ready: Promise<void> | undefined;
-
   const ensureSchema = (): Promise<void> => {
-    ready ??= (async () => {
+    let ready = schemaReadyCache.get(sql);
+    if (ready) return ready;
+    
+    ready = (async () => {
       for (const stmt of SCHEMA) {
         await sql.query(stmt, []);
       }
     })().catch((err: unknown) => {
-      ready = undefined;
+      schemaReadyCache.delete(sql);
       throw err;
     });
+    schemaReadyCache.set(sql, ready);
     return ready;
   };
 
@@ -94,7 +103,7 @@ export function createNeonMemoryStore(
     async list(owner) {
       await ensureSchema();
       const rows = await sql.query(
-        "SELECT id, text, bucket, source_msg_id, created_at FROM memories WHERE owner_sub = $1 ORDER BY created_at DESC",
+        "SELECT id, text, bucket, source_msg_id, created_at FROM memories WHERE owner_sub = $1 AND kind = 'memory' ORDER BY created_at DESC",
         [owner],
       );
       return rows.map(rowToMemory).filter(Boolean) as Memory[];
@@ -112,16 +121,20 @@ export function createNeonMemoryStore(
 
     async save(owner, input: MemoryInput) {
       await ensureSchema();
+      const kind = input.kind ?? "memory";
       const rows = await sql.query(
-        `INSERT INTO memories (owner_sub, text, bucket, source_msg_id)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO memories (owner_sub, text, bucket, source_msg_id, kind)
+         VALUES ($1, $2, $3, $4, $5)
          RETURNING id`,
-        [owner, input.text, input.bucket, input.sourceMessageId ?? null],
+        [owner, input.text, input.bucket, input.sourceMessageId ?? null, kind],
       );
       if (rows.length === 0) return { owned: false };
       const id = String(rows[0].id);
       // Fire-and-forget background embed. The row stays usable (trgm fallback) until embedded.
-      options.triggerEmbed?.(id, input.text);
+      // TOI uploads are not embedded.
+      if (kind !== "toi") {
+        options.triggerEmbed?.(id, input.text);
+      }
       return { owned: true, id };
     },
 

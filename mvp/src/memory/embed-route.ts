@@ -64,16 +64,17 @@ export async function runEmbedForMemory(
     return { status: 503, body: { error: "Memory unavailable" } };
   }
 
-  // Try to acquire the sandbox lock with a 0-second stale age (never wait — return busy immediately).
+  // Acquire the established agent sandbox lock (same path and stale age as agent turns).
+  // mkdir fails immediately with exit 75 when another turn holds it, so the response is a
+  // non-destructive busy with no wait. The default 15-minute stale age gives the embed an
+  // execution budget independent of how long acquisition took and prevents the lock from
+  // being released or reclaimed while the embed is still running: a runaway embed leaves
+  // the lock to expire rather than handing it to a later request mid-embedding.
   let vec: number[] | null = null;
   try {
     vec = await withAgentSandbox(
       deps.sandboxClient,
       async (sandbox) => deps.embedRunner.embed(text, sandbox),
-      // lockStaleMs: 1 ms means any existing lock is "stale" immediately, so we never actually
-      // wait. In practice, if the agent turn holds the lock, mkdir fails with exit 75 (BUSY)
-      // before the stale check is reached. This gives us the 0-second-wait semantics.
-      { lockStaleMs: 1, lockPath: "/tmp/nlt-embed.lock" },
     );
   } catch (err) {
     const name = err instanceof Error ? err.constructor.name : "";

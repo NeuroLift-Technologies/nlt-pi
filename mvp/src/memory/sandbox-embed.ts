@@ -34,6 +34,10 @@ export function validateVector(raw: unknown): number[] | null {
   return raw as number[];
 }
 
+/**
+ * Creates an embed runner that executes the embedding script in the sandbox.
+ * Returns an EmbedRunner instance that can be used to embed text.
+ */
 export function createEmbedRunner(): EmbedRunner {
   return {
     async embed(text, sandbox, timeoutMs = EMBED_TIMEOUT_MS) {
