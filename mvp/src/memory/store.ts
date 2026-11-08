@@ -15,6 +15,8 @@ export interface MemoryInput {
   text: string;
   bucket: MemoryBucket;
   sourceMessageId?: string;
+  /** Discriminator for memory kind: 'memory' (default) or 'toi' for TOI uploads. */
+  kind?: "memory" | "toi";
 }
 
 export interface MemoryStore {
@@ -67,26 +69,3 @@ export function fakeMemoryStore() {
   return { store, memories };
 }
 
-/**
- * Wraps the real Mem0 client as a MemoryStore. Created inside a request, never at module load.
- */
-export function createMem0Store(client: ReturnType<typeof import("./client.ts").createMemoryClient>): MemoryStore {
-  return {
-    async list(owner) {
-      return (await client.list(owner)).filter((m) => m.kind !== "toi");
-    },
-    async save(owner, input) {
-      const id = await client.create(owner, input);
-      return id === undefined ? { owned: false } : { owned: true, id };
-    },
-    async remove(owner, id) {
-      return client.remove(owner, id);
-    },
-    async get(owner, id) {
-      return client.get(owner, id);
-    },
-    async search(owner, query, limit) {
-      return (await client.search(owner, query, limit)).filter((m) => m.kind !== "toi");
-    },
-  };
-}

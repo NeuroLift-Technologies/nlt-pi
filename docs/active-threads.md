@@ -4,11 +4,28 @@
 
 ## Active
 
+### NLTPI-ARCH-002 — agentOS as the NLT Coding Agent execution environment
+**Status:** spec approved by owner (2026-11-07); adapter implemented and tested, unwired  
+**Owner:** Joshua W. Dorsey, Sr. / delegated coding agents  
+**Summary:** Replaces the Vercel Sandbox "AgentOS stand-in" (`mvp/src/sandbox/operations.ts:7`) with agentOS as the execution environment, behind the existing `SandboxLike` seam — `operations.ts`, the harness `reviewToolCall` policy and the crisis gate are unchanged, so only the execution layer swaps. Adds `mvp/src/sandbox/agentos-client.ts`, which maps `SandboxLike` onto an agentOS handle using the structural types published by `@rivet-dev/sandbox-adapter`: spawn plus `output.read` cursor polling for incremental stdout/stderr, SIGKILL on abort or timeout reporting `exitCode: null`, and `fs.realpath` implemented in-VM with `readlink -f` because agentOS exposes no `realpath` (gap G1) — a failed resolution throws, so confinement fails closed. No new dependency: the module imports no SDK, so it loads and tests with nothing installed. It creates no VM, reads no credential and opens no connection, and nothing calls `createAgentOsSandbox` yet.  
+**Spec:** `docs/superpowers/specs/2026-11-07-agentos-execution-env-design.md`  
+**Next (owner):** run `npm i @rivet-dev/agentos` with an exact pin — npm hangs in the agent shell, so this has to be yours — then open a feature branch and PR off `main`. The new files are untracked on a tree currently on `feat/mvp-neon-pgvector-memory`, so they must not ride along in the MEM-003 PR. Still open: D2 (credential), D3 (egress), and G1/G8 (coreutils in the VM image).
+
+### NLTPI-MEM-003 — Neon + pgvector memory layer
+**Status:** approved by owner (2026-11-06, Kiro CLI session); implementation in progress  
+**Owner:** Joshua W. Dorsey, Sr. / delegated coding agents  
+**Summary:** Replaces Mem0 (blocked on free-plan training-data concern) with a self-hosted memory store: short approved facts in Neon Postgres, semantic recall via pgvector cosine similarity, embeddings from `BAAI/bge-small-en-v1.5` ONNX int8 (384-dim, MIT, ~33 MB) running inside the persistent Vercel Sandbox. No new provider, no new API key, no new env vars. The model is pre-installed manually by the owner into `/vercel/sandbox/models/bge-small/` once and reused. Two embedding paths: background embed at save time (fires in-process embed without awaiting, registered with `waitUntil` when available; skipped if sandbox is busy), in-turn embed at recall time (sandbox already locked). pg_trgm fallback for rows without embeddings. `MemoryStore` interface unchanged; memory-route tests pass (169 passed / 10 expected fail in mvp vitest suite), but full-suite verification in untouched test files has not been run.  
+**Spec:** `docs/superpowers/specs/2026-11-06-neon-pgvector-memory-design.md`  
+**Next (owner):** verify background embed registration with `waitUntil` completes after response; confirm embedding consistency behavior for retries; test recall flow with cancellation propagation; review and approve remaining verification steps before merging. See handoff record for details.
+
+
+
 ### NLTPI-GOV-003 — Kilo Code agent configuration (`.kilo/`)
 **Status:** in review (PR open); unverified against a real Kilo client  
 **Owner:** Joshua W. Dorsey, Sr. / delegated coding agents  
 **Summary:** The owner runs Kilo Cloud Agents against this repository and a `[kilo]`-tagged commit is already in `main` (`0514e09`), but there was no project configuration, so Kilo worked here on default permissions and without the repository's governance in context. `.kilo/` is now the Kilo peer of `.claude/` and `.pi/`: `kilo.jsonc` (rule loading, tool permissions, empty `mcp`, watcher ignores, indexing off), `rules/` (four Kilo-specific files), `agents/` (steward, reviewer, implementation), `skills/` (byte-identical copies of the seven `.claude/skills/`), and a README. `kilo.jsonc` loads `AGENTS.md`, `CLAUDE.md`, `NLT-DEV-OTOI.md`, `GOVERNANCE.md` and `REVIEW.md` directly through `instructions`; governance text is not duplicated. Current Kilo reads one `kilo.jsonc` across the VS Code extension, the CLI and Cloud Agents, and `.kilo/kilo.jsonc` takes priority over a root `kilo.jsonc`; the legacy `.kilocode/` scheme is not used.  
 **Branch:** `feat/kilo-agent-config`  
+**MCP update (2026-11-07):** `.kilo/kilo.jsonc` now lists the official Vercel and Rivet hosted endpoints and read-only Neon endpoint. The change is on `feat/mvp-neon-pgvector-memory`; reconcile it with the open Kilo configuration PR before merging. Kilo-client/OAuth validation has not been run.
 **Registration:** `docs/agent-log/registrations/2026-11-05T044506Z-claude-code-01UNjnjmtbn8V5V114283EeV.json`  
 **Intent record:** `docs/agent-log/intent/2026-11-05-kilo-agent-config.md`  
 **Verification:** `kilo.jsonc` parses and holds no secret or placeholder token; all nine `instructions` paths resolve; agent frontmatter valid, with no `allow` rule after the closing deny guards in either read-only profile; all seven skill folder names match their frontmatter `name`; `scripts/check-agent-skill-parity.mjs` passes, was confirmed to fail on deliberate drift, and now SKIPs cleanly when the mirror is absent; the full root `npm run check` exits 0 (biome 1350 files no fixes, all five `check:*`, `check:install-lock:coding-agent`, root and examples `tsc --noEmit`, `check:browser-smoke`, `check:mvp`); mvp `vitest --run` 169 passed / 10 expected fail; governance validator 71 passed / 0 failed; clean conflict-marker scan. The pre-commit hook ran in full and passed on `9d1e35a` and later commits. **Not run:** root `npm test` and `npm run test:scripts`. **Not verified:** no Kilo client was available, so Kilo has never loaded this config; permission rules, agent discovery and skill discovery are unverified end to end.  
@@ -118,14 +135,14 @@
 **Planned next phase:** Mem0 as the agent's memory layer, with its own design. `@mem0/pi-agent-plugin` 0.3.2 has been reviewed: it fits Pi, but its auto-capture, model-callable delete and machine-based scoping need locking down before use in the hosted runner (`noExtensions: true` today).
 
 ### NLTPI-MVP-007 — Sandbox access requests (owner approves new sites)
-**Status:** design only (nlt-pi#39, `ccr-50842984-network-access`); revised once after the owner's review; awaiting the owner's re-review. No code.  
+**Status:** implemented and merged (nlt-pi#41); off by default (`NLT_ACCESS_REQUESTS` unset). Owner approved the spec on 2026-11-06 (confirmed in Kiro CLI session, same day).  
 **Owner:** Joshua W. Dorsey, Sr. / delegated coding agents  
 **Summary:** The sandbox can reach only npm, PyPI and GitHub (`EGRESS_PRESETS`). The owner wants the agent to ask before reaching any other site. Spec: `docs/superpowers/specs/2026-11-06-sandbox-access-requests-design.md`. The agent gets a tool `request_network_access(host, reason)`, which records a request and ends the turn. The chat page shows a card (Allow for this turn, Always allow, Deny). A "this turn" approval is bound to one conversation, one task and a one-time nonce, and is consumed in one atomic statement. An "always allow" host is stored per owner in Neon and can be removed. Off unless `NLT_ACCESS_REQUESTS=1`; `NLT_AGENT_EGRESS_ALL=1` is unchanged.  
 **Registration:** `docs/agent-log/registrations/2026-11-06T040112Z-claude-code-01UNjnjkGsveT9DW8pC9UXhf.json`  
 **Intent record:** `docs/agent-log/intent/2026-11-06-sandbox-access-requests.md`  
 **Handoff:** `docs/agent-log/handoffs/2026-11-06-sandbox-access-requests-design.json`  
 **Not verified:** that the real sandbox accepts a host added to its network policy mid-session; this needs one live turn after the feature is built and enabled.  
-**Next (owner):** approve the revised spec or ask for changes. Then an implementation plan and its execution method.
+**Next (owner):** set `NLT_ACCESS_REQUESTS=1` in the Vercel production environment and redeploy. Then run the live check: ask the agent to fetch from a site outside the presets and confirm the card appears, the approval flow works, and the sandbox reaches the site.
 
 ### NLTPI-MVP-008 — Multi-agent orchestration: System 2 plus System 1 reflexes
 **Status:** design only (branch `docs/multi-agent-system1-system2-design`); the owner approved the written spec on 2026-11-06; a same-day review changed sections 3, 3a, 4 and 8 and the owner should re-confirm 3a. An implementation plan exists locally but is not committed (`.gitignore` excludes `plans/`). No code.  
@@ -194,7 +211,7 @@
 
 
 ### NLTPI-MEM-001 — Mem0 memory layer (phase 1)
-**Status:** built; merged into `feat/mvp-mem0-memory-layer` branch with phase 2. **`NLT_MEMORY_ENABLED` kept disabled (owner decision, 2026-11-06)** pending probe results.  
+**Status:** superseded by NLTPI-MEM-003 (Neon + pgvector). Code remains on `feat/mvp-mem0-memory-layer` branch. `NLT_MEMORY_ENABLED` stays disabled. The branch will be rebased against the new implementation once MEM-003 is approved and built.  
 **Owner:** Joshua W. Dorsey, Sr. / delegated coding agents  
 **Summary:** Implements owner-approved learned memories in Mem0, recalled by the agent behind ASFDK checks. Routes: `GET/POST/DELETE /api/memories`, off unless `NLT_MEMORY_ENABLED=1`, 401 without owner session, `Cache-Control: no-store`. Every write passes `validateInputLength`, `sanitizeInput`, `detectInjectionPatterns` from `@neurolift-technologies/asfdk` (fail closed). Recall runs after the crisis gate: search Mem0, filter hits through the same checks, inject as delimited untrusted background. No Mem0 client or credentials reach the model; no code reachable from `runAgentTurn` can write to Mem0. Page: "Remember this" button on user messages, Memories panel (list/delete), data notice.  
 **Branch:** `feat/mvp-mem0-memory-layer`  

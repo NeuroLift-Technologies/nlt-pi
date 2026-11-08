@@ -41,6 +41,10 @@ const MAX_BODY_BYTES = 64 * 1024;
 const BUCKETS: ReadonlySet<MemoryBucket> = new Set<MemoryBucket>(["owner", "project"]);
 const MEMORY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$|^mem-\d+$/i;
 
+/**
+ * Checks if memory feature is enabled in the environment.
+ * Returns true only when NLT_MEMORY_ENABLED is exactly "1".
+ */
 export function memoryEnabled(env: { NLT_MEMORY_ENABLED?: string | undefined }): boolean {
   return env.NLT_MEMORY_ENABLED === "1";
 }
@@ -71,6 +75,10 @@ export function recallChecks(text: string): boolean {
   return !injection.detected;
 }
 
+/**
+ * Handles memory requests (list, save, delete) with owner verification and ASFDK checks.
+ * All operations are scoped to the owner from the session cookie.
+ */
 export async function handleMemoryRequest(request: MemoryRequest, response: AgentResponse, deps: MemoryRouteDeps): Promise<void> {
   response.setHeader("Cache-Control", "no-store");
   if (!memoryEnabled(deps.env)) {
@@ -140,6 +148,10 @@ export async function handleMemoryRequest(request: MemoryRequest, response: Agen
   response.status(200).json({ memories: all });
 }
 
+/**
+ * Handles POST requests for saving memories.
+ * Validates input, applies ASFDK checks, and stores the memory with the owner's session.
+ */
 async function handlePost(
   request: MemoryRequest,
   response: AgentResponse,

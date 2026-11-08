@@ -8,9 +8,19 @@ import { GATEWAY_API_URL, bindGatewayModel, runAgentTurn, type AgentRunnerDeps, 
 import { NoFreeModelError, type GatewayCatalogModel } from "../src/gateway/free-models.ts";
 import type { AgentSandbox, AgentSandboxParams, SandboxClient } from "../src/sandbox/lifecycle.ts";
 import type { SandboxLike } from "../src/sandbox/operations.ts";
+import type { Memory } from "../src/memory/store.ts";
+import type { Message } from "@earendil-works/pi-ai/compat";
 
 const TOKEN = "test-token-should-never-reach-the-sandbox";
 const FREE: GatewayCatalogModel = { id: "synthetic/free-model", type: "language", context_window: 32_000, pricing: { input: "0", output: "0" } };
+
+/** The text the session sends to the model for a user message (string content or first text block). */
+function userText(message: Message): string {
+  const content = message.content;
+  if (typeof content === "string") return content;
+  const first = content[0];
+  return typeof first === "object" && first !== null && "text" in first ? String(first.text) : "";
+}
 
 /** A sandbox that records everything sent to it and models the lock scripts. */
 class RecordingSandbox implements AgentSandbox {
@@ -553,5 +563,58 @@ describe("runAgentTurn", () => {
     } finally {
       await binding.dispose?.();
     }
+  });
+
+it("injects recalled memories into the prompt sent to the model", async () => {
+    const { deps, faux } = setup();
+    const memories: Memory[] = [
+      { id: "mem-1", text: "Owner prefers TypeScript", bucket: "owner", createdAt: new Date().toISOString() },
+      { id: "mem-2", text: "Project uses pgvector", bucket: "project", createdAt: new Date().toISOString() },
+    ];
+    deps.recall = async () => memories;
+    const seen: string[] = [];
+    // A faux response factory receives the normalized transcript; capture the user message.
+    faux.setResponses([
+      (context: any) => {
+        for (const m of context.messages) {
+          if (m.role === "user") seen.push(userText(m));
+        }
+        return fauxAssistantMessage("ok");
+      },
+    ]);
+    const result = await runAgentTurn(deps, { prompt: "what should I use?" });
+    expect(result).toMatchObject({ status: "completed" });
+    // The model received the user's prompt with both recalled memories inlined.
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("what should I use?");
+    expect(seen[0]).toContain("Owner prefers TypeScript");
+    expect(seen[0]).toContain("Project uses pgvector");
+  });
+
+  it("injects recalled memories via recallFactory after the sandbox lock is held", async () => {
+    const { deps, faux } = setup();
+    const memories: Memory[] = [
+      { id: "mem-3", text: "Recall from the locked sandbox", bucket: "owner", createdAt: new Date().toISOString() },
+    ];
+    let recallSawSandbox = false;
+    deps.recallFactory = (sandbox) => {
+      recallSawSandbox = typeof sandbox === "object" && sandbox !== null && typeof (sandbox as any).runCommand === "function" && typeof (sandbox as any).fs === "object";
+      return (prompt) => {
+        expect(prompt).toBe("hi");
+        return Promise.resolve(memories);
+      };
+    };
+    const seen: string[] = [];
+    faux.setResponses([
+      (context: any) => {
+        for (const m of context.messages) {
+          if (m.role === "user") seen.push(userText(m));
+        }
+        return fauxAssistantMessage("ok");
+      },
+    ]);
+    await runAgentTurn(deps, { prompt: "hi" });
+    expect(recallSawSandbox).toBe(true);
+    expect(seen[0]).toContain("Recall from the locked sandbox");
   });
 });
